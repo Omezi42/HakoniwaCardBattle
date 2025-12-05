@@ -1,0 +1,27 @@
+%YAML 1.1
+%TAG !u! tag:unity3d.com,2011:
+--- !u!114 &11400000
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 0}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: c71e7460e0e60df45809536b9f79afbc, type: 3}
+  m_Name: "N06_\u3055\u3048\u305A\u308B\u5C0F\u9CE5"
+  m_EditorClassIdentifier: 
+  id: N06
+  cardName: "\u3055\u3048\u305A\u308B\u5C0F\u9CE5"
+  type: 0
+  job: 0
+  rarity: 0
+  cost: 0
+  attack: 1
+  health: 1
+  maxInDeck: 99
+  description: "\u5C0F\u9CE5\u306E\u6B4C\u304C\u4E16\u754C\u3092\u7167\u3089\u3059\u3002"
+  scriptKey: VANILLA
+  abilities: []
+  cardIcon: {fileID: 21300000, guid: 4f2c212864aaa6c438a5ac074e71c081, type: 3}

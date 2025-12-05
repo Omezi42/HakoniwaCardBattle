@@ -1,0 +1,31 @@
+%YAML 1.1
+%TAG !u! tag:unity3d.com,2011:
+--- !u!114 &11400000
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 0}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: c71e7460e0e60df45809536b9f79afbc, type: 3}
+  m_Name: "P02_\u30DE\u30CA\u306E\u7D50\u6676"
+  m_EditorClassIdentifier: 
+  id: P02
+  cardName: "\u30DE\u30CA\u306E\u7D50\u6676"
+  type: 1
+  job: 3
+  rarity: 1
+  cost: 3
+  attack: 0
+  health: 0
+  maxInDeck: 2
+  description: "\u81EA\u5206\u306E\u6700\u5927\u30DE\u30CA\u30921\u5897\u3084\u3059\u3002\uFF08\u7A7A\u306E\u30DE\u30CA\u3068\u3057\u3066\u8FFD\u52A0\uFF09"
+  scriptKey: RAMP_MANA_1
+  abilities:
+  - trigger: 3
+    target: 8
+    effect: 4
+    value: 1
+  cardIcon: {fileID: 21300000, guid: 9d66897f5d7ad7f40802c27de946aef7, type: 3}
