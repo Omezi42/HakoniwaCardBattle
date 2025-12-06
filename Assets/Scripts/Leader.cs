@@ -70,20 +70,6 @@ public class Leader : MonoBehaviour, IDropHandler
             }
             return;
         }
-
-        // パターンB：スペルカードの使用
-        CardView card = eventData.pointerDrag.GetComponent<CardView>();
-        if (card != null && card.cardData.type == CardType.SPELL)
-        {
-            // マナチェック
-            if (GameManager.instance.TryUseMana(card.cardData.cost))
-            {
-                // 自分自身(this)をターゲットとして渡して発動！
-                GameManager.instance.ProcessAbilities(card.cardData, EffectTrigger.SPELL_USE, null, this);
-                
-                Destroy(card.gameObject);
-            }
-        }
     }
 
     void UpdateHPBar()

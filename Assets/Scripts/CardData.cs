@@ -40,16 +40,19 @@ public enum EffectTarget
 // 3. エフェクト（効果内容）
 public enum EffectType
 {
-    DAMAGE,         // ダメージを与える
-    HEAL,           // 回復する
-    BUFF_ATTACK,    // 攻撃力を増やす
-    BUFF_HEALTH,    // HPを増やす
-    GAIN_MANA,      // マナを増やす
-    DESTROY,        // 破壊する
-    TAUNT,          // 守護を持つ
-    STEALTH,        // 潜伏を持つ
-    QUICK,           // 疾風を持つ
-    DRAW_CARD,      // カードを引く
+    DAMAGE,
+    HEAL,
+    BUFF_ATTACK,
+    BUFF_HEALTH,
+    GAIN_MANA,
+    DESTROY,
+    TAUNT,
+    STEALTH,
+    QUICK,          // 疾風 (移動と攻撃が両方できる)
+    DRAW_CARD,
+    HASTE,          // ★追加：速攻 (召喚酔いなし)
+    FORCE_MOVE,     // ★追加：強制移動 (煙玉など)
+    RETURN_TO_HAND, // ★追加：バウンス (念のため)
 }
 
 // これらをまとめた「能力データ」クラス

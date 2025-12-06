@@ -25,6 +25,9 @@ public class UnitMover : MonoBehaviour, IBeginDragHandler, IDragHandler, IEndDra
     public string scriptKey;
     public int maxHealth;
 
+    public bool hasHaste = false; 
+    public bool hasQuick = false;
+
     private bool isAnimating = false; // アニメーション中フラグ
     private Vector3 dragStartPos;
 
@@ -73,25 +76,27 @@ public class UnitMover : MonoBehaviour, IBeginDragHandler, IDragHandler, IEndDra
 
         if (!isPlayerUnit)
         {
+            // 敵はGameManager(AI)が管理するので、ここではとりあえずtrueにしておく
+            // (AIターン開始時にリセットされるため)
+            canAttack = false;
+            canMove = false;
             canvasGroup.blocksRaycasts = true;
         }
         else
         {
-            // ����(PASSIVE_QUICK)����Ȃ��Ȃ�A�ʏ�ʂ�U���s�E�ړ���
-            if (data.scriptKey != "PASSIVE_QUICK")
+            // プレイヤーユニット
+            // ★変更：速攻(Haste)なら最初から動ける。それ以外は召喚酔い(false)
+            if (hasHaste)
             {
-                canAttack = false;
-                canMove = false;
-
-                // 見た目をグレーにして「動けないよ」と伝える
-                GetComponent<UnityEngine.UI.Image>().color = Color.gray;
-            }
-            else
-            {
-                // 疾風持ちの場合
                 canAttack = true;
                 canMove = true;
                 GetComponent<UnityEngine.UI.Image>().color = Color.white;
+            }
+            else
+            {
+                canAttack = false;
+                canMove = false;
+                GetComponent<UnityEngine.UI.Image>().color = Color.gray;
             }
         }
         // ★修正：アビリティリストを見てパッシブを設定
@@ -101,11 +106,8 @@ public class UnitMover : MonoBehaviour, IBeginDragHandler, IDragHandler, IEndDra
             {
                 if (ability.effect == EffectType.TAUNT) hasTaunt = true;
                 if (ability.effect == EffectType.STEALTH) { hasStealth = true; GetComponent<CanvasGroup>().alpha = 0.5f; }
-                if (ability.effect == EffectType.QUICK) 
-                {
-                    // 疾風処理
-                    if (isPlayer) { canAttack = true; canMove = true; }
-                }
+                if (ability.effect == EffectType.QUICK) hasQuick = true; // 疾風
+                if (ability.effect == EffectType.HASTE) hasHaste = true; // 速攻
             }
         }
         
@@ -279,7 +281,7 @@ public class UnitMover : MonoBehaviour, IBeginDragHandler, IDragHandler, IEndDra
             GameManager.instance.PlaySE(GameManager.instance.seAttack);
             target.TakeDamage(attackPower);
             
-            // ★注意：ここにあった ConsumeAction() は削除しました
+            ConsumeAttack();
         }));
     }
 
@@ -317,7 +319,7 @@ public class UnitMover : MonoBehaviour, IBeginDragHandler, IDragHandler, IEndDra
             enemy.TakeDamage(finalDamage);
             this.TakeDamage(enemyDamage);
             
-            // ★注意：ここにあった ConsumeAction() は削除しました
+            ConsumeAttack();
         }));
     }
 
@@ -382,29 +384,53 @@ public class UnitMover : MonoBehaviour, IBeginDragHandler, IDragHandler, IEndDra
         
         isAnimating = false;
     }
-    // ���ǉ��F�s���I�����̋��ʏ���
-    // �U�����ړ��A�ǂ��炩���s������u�ς݁v��Ԃɂ���
-    public void ConsumeAction()
+
+    public void ConsumeAction() 
     {
-        // �U����ړ����������������
-        if (hasStealth)
-        {
-            hasStealth = false;
-            GetComponent<CanvasGroup>().alpha = 1.0f; // �����x��߂�
-            if (unitView != null) unitView.RefreshStatusIcons(hasTaunt, hasStealth);
-        }
-
-        if (originalParent != null)
-        {
-            transform.SetParent(originalParent);
-            transform.localPosition = Vector3.zero;
-        }
-
-        // �����̌���������
+        // 強制的に全終了させる場合（建設など）
+        canMove = false;
         canAttack = false;
+        UpdateColor();
+    }
+
+    public void ConsumeMove()
+    {
         canMove = false;
 
-        GetComponent<UnityEngine.UI.Image>().color = Color.gray;
+        // ★疾風(Quick)を持っていないなら、攻撃権も失う
+        if (!hasQuick)
+        {
+            canAttack = false;
+        }
+
+        UpdateColor();
+    }
+
+    // 攻撃が終わったときに呼ぶ
+    public void ConsumeAttack()
+    {
+        canAttack = false;
+
+        // ★疾風(Quick)を持っていないなら、移動権も失う
+        if (!hasQuick)
+        {
+            canMove = false;
+        }
+
+        UpdateColor();
+    }
+
+    void UpdateColor()
+    {
+        // どちらもできないならグレー、どちらかできるなら白
+        if (!canMove && !canAttack)
+        {
+            GetComponent<UnityEngine.UI.Image>().color = Color.gray;
+        }
+        else
+        {
+            GetComponent<UnityEngine.UI.Image>().color = Color.white;
+        }
     }
 
 // UnitMover.cs の OnDrop 内
@@ -420,24 +446,6 @@ public class UnitMover : MonoBehaviour, IBeginDragHandler, IDragHandler, IEndDra
                 if (GameManager.instance.CanAttackUnit(attacker, this)) attacker.AttackUnit(this);
             }
             return; // 処理終了
-        }
-
-        // ★追加 パターンB：スペルカードが落ちてきた！
-        CardView card = eventData.pointerDrag.GetComponent<CardView>();
-        if (card != null && card.cardData.type == CardType.SPELL)
-        {
-            // このユニットは敵か？
-            if (!this.isPlayerUnit)
-            {
-                // マナチェック
-                if (GameManager.instance.TryUseMana(card.cardData.cost))
-                {
-                    // ★自分自身(this)をターゲットとして渡して発動！
-                    GameManager.instance.ProcessAbilities(card.cardData, EffectTrigger.SPELL_USE, null, this);
-                    
-                    Destroy(card.gameObject);
-                }
-            }
         }
     }
     // ���ǉ��F�񕜏����p�i�ő�l�𒴂��Ȃ��悤�Ɂj
@@ -528,7 +536,7 @@ public class UnitMover : MonoBehaviour, IBeginDragHandler, IDragHandler, IEndDra
         // ★削除：砂煙エフェクト
         // GameManager.instance.PlayDustEffect(transform.position); 
         
-        ConsumeAction();
+        ConsumeMove();
         isAnimating = false;
     }
 }

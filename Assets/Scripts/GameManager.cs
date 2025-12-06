@@ -3,6 +3,7 @@ using UnityEngine.UI;
 using TMPro;
 using System.Collections.Generic;
 using UnityEngine.SceneManagement;
+using UnityEngine.EventSystems;
 
 public class GameManager : MonoBehaviour
 {
@@ -51,14 +52,9 @@ public class GameManager : MonoBehaviour
 
     [Header("ビルドシステム")]
     public List<BuildData> playerLoadoutBuilds;
-    public List<BuildData> enemyLoadoutBuilds;
+    public List<BuildData> enemyLoadoutBuilds; // 敵用リスト
     public List<ActiveBuild> activeBuilds = new List<ActiveBuild>();
-
-    [Header("リーダー画像")]
-    // [0]Neutral, [1]Knight, [2]Mage, [3]Priest, [4]Rogue
-    public Sprite[] leaderIcons;
     
-    // ★修正：型を BuildUIManager に変更
     public BuildUIManager buildUIManager; 
 
     // クールタイム管理
@@ -76,7 +72,7 @@ public class GameManager : MonoBehaviour
     public TurnCutIn turnCutIn;
     public TargetArrow targetArrowPrefab;
     private TargetArrow currentArrow;
-    public SimpleTooltip simpleTooltip;
+    public SimpleTooltip simpleTooltip; // ツールチップ
 
     [Header("マナUI")]
     public List<Image> playerManaCrystals; 
@@ -84,6 +80,14 @@ public class GameManager : MonoBehaviour
 
     public Sprite manaOnSprite;
     public Sprite manaOffSprite;
+
+    [Header("リーダー画像")]
+    public Sprite[] leaderIcons; 
+
+    [Header("スペル詠唱")]
+    public Transform spellCastCenter; // 画面中央の座標（Canvas内に空オブジェクトを作って割り当てる）
+    public CardView currentCastingCard; // 現在詠唱待機中のカード
+    public bool isTargetingMode = false; // ターゲット選択中か
 
     // ビルド表示用
     public Transform playerBuildArea;
@@ -121,10 +125,7 @@ public class GameManager : MonoBehaviour
         DealCards(3);
         
         UpdateBuildUI();
-
         SetupLeaderIcon();
-
-        SetupBoard(GameObject.Find("PlayerBoard").transform, false);
 
         if (targetArrowPrefab != null)
         {
@@ -136,22 +137,6 @@ public class GameManager : MonoBehaviour
         StartPlayerTurn();
     }
 
-    public void ShowTooltip(string text)
-    {
-        if (simpleTooltip != null)
-        {
-            simpleTooltip.Show(text);
-        }
-    }
-
-    public void HideTooltip()
-    {
-        if (simpleTooltip != null)
-        {
-            simpleTooltip.Hide();
-        }
-    }
-
     void SetupLeaderIcon()
     {
         if (PlayerDataManager.instance != null)
@@ -159,17 +144,14 @@ public class GameManager : MonoBehaviour
             var data = PlayerDataManager.instance.playerData;
             if (data.decks != null && data.decks.Count > 0)
             {
-                // 現在のデッキのジョブを取得
                 int deckIndex = data.currentDeckIndex;
                 if (deckIndex >= 0 && deckIndex < data.decks.Count)
                 {
                     JobType currentJob = data.decks[deckIndex].deckJob;
                     int jobIndex = (int)currentJob;
 
-                    // アイコン画像があるか確認
                     if (leaderIcons != null && jobIndex < leaderIcons.Length && leaderIcons[jobIndex] != null)
                     {
-                        // プレイヤーリーダーの中にある「LeaderFace」を探して画像を差し替える
                         if (playerLeader != null)
                         {
                             var face = playerLeader.GetComponentInChildren<LeaderFace>();
@@ -193,27 +175,19 @@ public class GameManager : MonoBehaviour
         mainDeck.Clear();
         List<string> deckIds = new List<string>();
 
-        // 1. PlayerDataManagerから現在のデッキIDリストを取得
         if (PlayerDataManager.instance != null)
         {
-            // ★修正：新しいデータ構造に対応
             var data = PlayerDataManager.instance.playerData;
-            
-            // デッキが存在するか確認
             if (data.decks != null && data.decks.Count > 0)
             {
-                // インデックスが範囲外なら0に戻す
                 if (data.currentDeckIndex >= data.decks.Count || data.currentDeckIndex < 0)
                 {
                     data.currentDeckIndex = 0;
                 }
-
-                // 選択中のデッキのカードリストを取得
                 deckIds = data.decks[data.currentDeckIndex].cardIds;
             }
         }
 
-        // 2. データがない場合（エディタで直接再生時など）はテスト用デッキ作成
         if (deckIds == null || deckIds.Count == 0)
         {
             Debug.Log("デッキデータがないため、ランダムなテストデッキを使用します。");
@@ -228,7 +202,6 @@ public class GameManager : MonoBehaviour
         }
         else
         {
-            // IDリストをカードデータに変換して山札に入れる
             foreach (string id in deckIds)
             {
                 CardData card = PlayerDataManager.instance.GetCardById(id);
@@ -239,7 +212,6 @@ public class GameManager : MonoBehaviour
             }
         }
 
-        // 3. シャッフル
         int n = mainDeck.Count;
         while (n > 1)
         {
@@ -276,9 +248,11 @@ public class GameManager : MonoBehaviour
     {
         if (!isPlayerTurn) return;
 
-        ProcessBuildEffects(EffectTrigger.ON_TURN_END, true);
+        // ★修正：AbilityManager経由で呼び出す
+        AbilityManager.instance.ProcessBuildEffects(EffectTrigger.ON_TURN_END, true);
+        
         DecreaseBuildDuration(true);
-        ProcessTurnEndEffects(true);
+        AbilityManager.instance.ProcessTurnEndEffects(true);
 
         Debug.Log("ターン終了！敵のターンです。");
         isPlayerTurn = false;
@@ -371,9 +345,8 @@ public class GameManager : MonoBehaviour
                 UnitMover mover = newUnit.GetComponent<UnitMover>();
                 
                 mover.Initialize(selectedInfo, false);
-                ProcessAbilities(selectedInfo, EffectTrigger.ON_SUMMON, mover);
+                AbilityManager.instance.ProcessAbilities(selectedInfo, EffectTrigger.ON_SUMMON, mover);
 
-                // ★追加：敵ユニットも召喚アニメーションを再生！
                 mover.PlaySummonAnimation();
 
                 Debug.Log("敵召喚: " + selectedInfo.cardName);
@@ -381,11 +354,212 @@ public class GameManager : MonoBehaviour
             }
         }
         
-        ProcessBuildEffects(EffectTrigger.ON_TURN_END, false);
+        // ★修正：AbilityManager経由で呼び出す
+        AbilityManager.instance.ProcessBuildEffects(EffectTrigger.ON_TURN_END, false);
+        
         DecreaseBuildDuration(false);
-        ProcessTurnEndEffects(false);
+        AbilityManager.instance.ProcessTurnEndEffects(false);
 
         Invoke("StartPlayerTurn", 1.0f);
+    }
+
+    void Update()
+    {
+        // ターゲット選択中の処理
+        if (isTargetingMode && currentCastingCard != null)
+        {
+            // 右クリックでキャンセル
+            if (Input.GetMouseButtonDown(1))
+            {
+                CancelSpellCast();
+                return;
+            }
+
+            // 矢印の更新（カード中心からマウスへ）
+            UpdateArrow(spellCastCenter.position, Input.mousePosition);
+
+            GameObject targetObj = GetObjectUnderMouse();
+            bool isValidTarget = false;
+
+            if (targetObj != null)
+            {
+                // マウス下のユニット・リーダーを取得
+                UnitMover unit = targetObj.GetComponentInParent<UnitMover>();
+                Leader leader = targetObj.GetComponentInParent<Leader>();
+
+                // カードのターゲット条件と合致するかチェック
+                // （簡易チェック：敵ユニット指定なら敵ユニットか？）
+                foreach (var ability in currentCastingCard.cardData.abilities)
+                {
+                    if (CheckTargetValidity(ability.target, unit, leader))
+                    {
+                        isValidTarget = true;
+                        break;
+                    }
+                }
+            }
+
+            // 色の適用
+            SetArrowColor(isValidTarget ? Color.red : Color.white);
+
+            // クリックで決定
+            if (Input.GetMouseButtonDown(0))
+            {
+                // マウス下のオブジェクトを取得
+                targetObj = GetObjectUnderMouse();
+                if (targetObj != null)
+                {
+                    TryCastSpellToTarget(targetObj);
+                }
+                else
+                {
+                    // 無効な場所クリックでキャンセル、または何もしない
+                    CancelSpellCast(); // お好みで
+                }
+            }
+        }
+    }
+
+    bool CheckTargetValidity(EffectTarget targetType, UnitMover unit, Leader leader)
+    {
+        if (unit != null)
+        {
+            if (targetType == EffectTarget.SELECT_ENEMY_UNIT || targetType == EffectTarget.SELECT_ANY_ENEMY)
+                return !unit.isPlayerUnit; // 敵ユニットならOK
+            // 味方指定などが必要ならここに追加
+        }
+        else if (leader != null)
+        {
+            // 敵リーダー判定（親の名前などで判断）
+            bool isEnemyLeader = (leader.transform.parent.name == "EnemyBoard" || leader.name == "EnemyInfo");
+            
+            if (targetType == EffectTarget.SELECT_ENEMY_LEADER || targetType == EffectTarget.SELECT_ANY_ENEMY)
+                return isEnemyLeader;
+        }
+        return false;
+    }
+
+    // レイキャストヘルパー
+    GameObject GetObjectUnderMouse()
+    {
+        PointerEventData pointerData = new PointerEventData(UnityEngine.EventSystems.EventSystem.current);
+        pointerData.position = Input.mousePosition;
+        List<RaycastResult> results = new List<RaycastResult>();
+        UnityEngine.EventSystems.EventSystem.current.RaycastAll(pointerData, results);
+        
+        if (results.Count > 0) return results[0].gameObject;
+        return null;
+    }
+
+    // ★スペル詠唱開始（DraggableやDropPlaceから呼ばれる）
+    public void StartSpellCast(CardView card)
+    {
+        // マナチェック
+        if (currentMana < card.cardData.cost)
+        {
+            Debug.Log("マナが足りません");
+            // 元の位置に戻す処理が必要（Draggable側で対応）
+            return;
+        }
+
+        // カードを中央へ移動
+        currentCastingCard = card;
+        card.transform.SetParent(spellCastCenter);
+        card.transform.localPosition = Vector3.zero;
+        
+        // ターゲットが必要なスペルか判定
+        bool needsTarget = CheckIfSpellNeedsTarget(card.cardData);
+
+        if (needsTarget)
+        {
+            // ターゲットモード移行
+            isTargetingMode = true;
+            ShowArrow(spellCastCenter.position);
+            SetArrowColor(Color.white); // ターゲット探索色
+            
+            // 右上に説明ウィンドウを出す（ShowUnitDetailを流用）
+            ShowUnitDetail(card.cardData); 
+            // ※本来は専用の「効果説明小窓」を出すべきですが、既存UIを使います
+        }
+        else
+        {
+            // ターゲット不要なら即発動
+            ExecuteSpell(null);
+        }
+    }
+
+    bool CheckIfSpellNeedsTarget(CardData data)
+    {
+        foreach(var ab in data.abilities)
+        {
+            if (ab.target == EffectTarget.SELECT_ENEMY_UNIT || 
+                ab.target == EffectTarget.SELECT_ENEMY_LEADER || 
+                ab.target == EffectTarget.SELECT_ANY_ENEMY)
+                return true;
+        }
+        return false;
+    }
+
+    // ターゲット指定発動
+    void TryCastSpellToTarget(GameObject targetObj)
+    {
+        UnitMover unit = targetObj.GetComponentInParent<UnitMover>();
+        Leader leader = targetObj.GetComponentInParent<Leader>();
+
+        object target = null;
+        if (unit != null) target = unit;
+        else if (leader != null) target = leader;
+
+        if (target != null)
+        {
+            // ここで「有効なターゲットか（敵味方など）」を判定すべきですが、
+            // AbilityManager側で弾くか、ここで簡易チェックします
+            ExecuteSpell(target);
+        }
+    }
+
+    void ExecuteSpell(object manualTarget)
+    {
+        // マナ消費
+        TryUseMana(currentCastingCard.cardData.cost); // ここで減らす
+
+        // 発動
+        AbilityManager.instance.ProcessAbilities(currentCastingCard.cardData, EffectTrigger.SPELL_USE, null, manualTarget);
+        
+        // 後始末
+        Destroy(currentCastingCard.gameObject);
+        CleanupSpellMode();
+        PlaySE(seSummon); // 魔法音
+    }
+
+    public void CancelSpellCast()
+    {
+        if (currentCastingCard != null)
+        {
+            // ★修正：手札エリアに戻す
+            currentCastingCard.transform.SetParent(handArea);
+            
+            // サイズと位置をリセット
+            currentCastingCard.transform.localScale = Vector3.one;
+            currentCastingCard.transform.localPosition = Vector3.zero; // 必要に応じて調整
+
+            // 再び操作できるようにレイキャストをブロックする
+            var group = currentCastingCard.GetComponent<CanvasGroup>();
+            if (group != null) group.blocksRaycasts = true;
+
+            // ドラッグスクリプトの状態もリセットしておく
+            var drag = currentCastingCard.GetComponent<Draggable>();
+            if (drag != null) drag.originalParent = handArea;
+        }
+        CleanupSpellMode();
+    }
+
+    void CleanupSpellMode()
+    {
+        isTargetingMode = false;
+        currentCastingCard = null;
+        HideArrow();
+        OnClickCloseDetail(); // 小窓を消す
     }
 
     void StartPlayerTurn()
@@ -400,7 +574,6 @@ public class GameManager : MonoBehaviour
         UpdateManaUI();
         DealCards(1);
 
-        // ★修正：安全なユニット取得処理
         GameObject board = GameObject.Find("PlayerBoard");
         if (board != null)
         {
@@ -427,7 +600,6 @@ public class GameManager : MonoBehaviour
             }
         }
         
-        // ★修正：BuildUIManagerを使う形に修正
         if (buildUIManager != null && buildUIManager.gameObject.activeSelf) 
         {
             buildUIManager.OpenMenu(true);
@@ -438,10 +610,8 @@ public class GameManager : MonoBehaviour
 
     public void OpenBuildMenu()
     {
-        // ★修正：BuildUIManagerを使用
         if (buildUIManager != null)
         {
-            // 単純なトグルではなく、開く処理を呼ぶ（閉じるのはUI側のボタン等で）
             if (buildUIManager.gameObject.activeSelf)
                 buildUIManager.CloseMenu();
             else
@@ -498,36 +668,11 @@ public class GameManager : MonoBehaviour
         return null;
     }
 
-    // ★修正：引数追加 (OpenBuildMenu(bool) で呼び出せるように)
     public void OpenBuildMenu(bool isPlayer)
     {
         if (buildUIManager != null)
         {
             buildUIManager.OpenMenu(isPlayer);
-        }
-    }
-
-    public void ProcessBuildEffects(EffectTrigger trigger, bool isPlayerTurnStart)
-    {
-        if (activeBuilds == null) return;
-        for (int i = activeBuilds.Count - 1; i >= 0; i--)
-        {
-            ActiveBuild build = activeBuilds[i];
-
-            if (build.isUnderConstruction) continue;
-            if (build.isPlayerOwner != isPlayerTurnStart) continue;
-
-            foreach (var ability in build.data.abilities)
-            {
-                if (ability.trigger == trigger)
-                {
-                    List<object> targets = GetTargets(ability.target, null, null); 
-                    foreach (object target in targets)
-                    {
-                        ApplyEffect(target, ability.effect, ability.value, null);
-                    }
-                }
-            }
         }
     }
 
@@ -568,8 +713,6 @@ public class GameManager : MonoBehaviour
                 if (view != null) 
                 {
                     view.SetBuild(build);
-
-                    // ★追加：敵のビルドならアイコンを反転させる
                     if (!build.isPlayerOwner)
                     {
                         view.SetFlip(true);
@@ -592,130 +735,6 @@ public class GameManager : MonoBehaviour
 
         int life = (currentLife != -1) ? currentLife : data.duration;
         detailStats.text = $"COST: {data.cost} / LIFE: {life}";
-    }
-
-    public void ProcessAbilities(CardData card, EffectTrigger currentTrigger, UnitMover sourceUnit, object manualTarget = null)
-    {
-        foreach (CardAbility ability in card.abilities)
-        {
-            if (ability.trigger != currentTrigger) continue;
-
-            List<object> targets = GetTargets(ability.target, sourceUnit, manualTarget);
-            foreach (object target in targets)
-            {
-                ApplyEffect(target, ability.effect, ability.value, sourceUnit);
-            }
-        }
-    }
-
-    void ProcessTurnEndEffects(bool isPlayerEnding)
-    {
-        Transform board = isPlayerEnding ? GameObject.Find("PlayerBoard").transform : enemyBoard;
-        if (board != null)
-        {
-            foreach (UnitMover unit in board.GetComponentsInChildren<UnitMover>())
-            {
-                if (unit.sourceData != null)
-                {
-                    ProcessAbilities(unit.sourceData, EffectTrigger.ON_TURN_END, unit);
-                }
-            }
-        }
-    }
-
-    List<object> GetTargets(EffectTarget targetType, UnitMover source, object manualTarget) 
-    {
-        List<object> results = new List<object>();
-        bool isPlayerSide = (source != null) ? source.isPlayerUnit : isPlayerTurn;
-        Transform enemyBoardTrans = isPlayerSide ? enemyBoard : GameObject.Find("PlayerBoard").transform;
-        Transform myBoardTrans = isPlayerSide ? GameObject.Find("PlayerBoard").transform : enemyBoard;
-
-        switch (targetType)
-        {
-            case EffectTarget.SELF:
-                if (source != null) results.Add(source);
-                break;
-            case EffectTarget.ENEMY_LEADER:
-                var eLeader = isPlayerSide ? GameObject.Find("EnemyInfo") : (playerLeader != null ? playerLeader.gameObject : null);
-                if (eLeader != null) results.Add(eLeader.GetComponent<Leader>());
-                break;
-            case EffectTarget.PLAYER_LEADER:
-                var pLeader = isPlayerSide ? (playerLeader != null ? playerLeader.gameObject : null) : GameObject.Find("EnemyInfo");
-                if (pLeader != null) results.Add(pLeader.GetComponent<Leader>());
-                break;
-            case EffectTarget.FRONT_ENEMY:
-                if (source != null)
-                {
-                    UnitMover front = GetFrontEnemy(source);
-                    if (front != null) results.Add(front);
-                }
-                break;
-            case EffectTarget.ALL_ENEMIES:
-                if (enemyBoardTrans != null)
-                    foreach (var unit in enemyBoardTrans.GetComponentsInChildren<UnitMover>()) results.Add(unit);
-                break;
-            case EffectTarget.RANDOM_ENEMY:
-                if (enemyBoardTrans != null)
-                {
-                    var enemies = enemyBoardTrans.GetComponentsInChildren<UnitMover>();
-                    if (enemies.Length > 0) results.Add(enemies[UnityEngine.Random.Range(0, enemies.Length)]);
-                }
-                break;
-            case EffectTarget.ALL_ALLIES:
-                if (myBoardTrans != null)
-                    foreach (var unit in myBoardTrans.GetComponentsInChildren<UnitMover>()) results.Add(unit);
-                break;
-            case EffectTarget.SELECT_ENEMY_UNIT:
-            case EffectTarget.SELECT_ENEMY_LEADER:
-            case EffectTarget.SELECT_ANY_ENEMY:
-                if (manualTarget != null) results.Add(manualTarget);
-                break;
-        }
-        return results;
-    }
-
-    void ApplyEffect(object target, EffectType effectType, int value, UnitMover source)
-    {
-        if (target == null) return;
-
-        switch (effectType)
-        {
-            case EffectType.DAMAGE:
-                if (target is UnitMover) ((UnitMover)target).TakeDamage(value);
-                else if (target is Leader) ((Leader)target).TakeDamage(value);
-                break;
-            case EffectType.HEAL:
-                if (target is UnitMover) ((UnitMover)target).Heal(value);
-                else if (target is Leader) ((Leader)target).TakeDamage(-value);
-                break;
-            case EffectType.BUFF_ATTACK:
-                if (target is UnitMover)
-                {
-                    UnitMover u = (UnitMover)target;
-                    u.attackPower += value;
-                    if(u.GetComponent<UnitView>()) u.GetComponent<UnitView>().attackText.text = u.attackPower.ToString();
-                }
-                break;
-            case EffectType.BUFF_HEALTH:
-                if (target is UnitMover)
-                {
-                    UnitMover u = (UnitMover)target;
-                    u.maxHealth += value; 
-                    u.Heal(value); 
-                }
-                break;
-            case EffectType.GAIN_MANA:
-                bool isPlayer = (source != null) ? source.isPlayerUnit : isPlayerTurn;
-                if (isPlayer) { maxMana += value; currentMana += value; UpdateManaUI(); }
-                else { enemyMaxMana += value; enemyCurrentMana += value; UpdateEnemyManaUI(); }
-                break;
-            case EffectType.DRAW_CARD:
-                if (isPlayerTurn) DealCards(value);
-                break;
-            case EffectType.DESTROY:
-                if (target is UnitMover) ((UnitMover)target).TakeDamage(9999);
-                break;
-        }
     }
 
     public bool TryUseMana(int cost)
@@ -761,22 +780,17 @@ public class GameManager : MonoBehaviour
         get { return currentArrow != null && currentArrow.gameObject.activeSelf; }
     }
 
-    public void ActivateBuildAbility(CardAbility ability, object target, ActiveBuild sourceBuild)
+    public void ShowTooltip(string text)
     {
-        // 効果適用
-        ApplyEffect(target, ability.effect, ability.value, null);
-        
-        // ★追加：行動済みにする
-        if (sourceBuild != null)
-        {
-            sourceBuild.hasActed = true;
-            UpdateBuildUI(); // 見た目を更新（暗くする）
-        }
-        
-        Debug.Log($"ビルド効果発動: {ability.effect} -> {target}");
+        if (simpleTooltip != null) simpleTooltip.Show(text);
     }
 
-    void UpdateManaUI()
+    public void HideTooltip()
+    {
+        if (simpleTooltip != null) simpleTooltip.Hide();
+    }
+
+    public void UpdateManaUI()
     {
         if (playerManaText != null)
             playerManaText.GetComponent<TextMeshProUGUI>().text = $"Mana: {currentMana}/{maxMana}";
@@ -808,7 +822,7 @@ public class GameManager : MonoBehaviour
         UpdateHandState();
     }
 
-    void UpdateEnemyManaUI()
+    public void UpdateEnemyManaUI()
     {
         if (enemyManaText != null)
             enemyManaText.GetComponent<TextMeshProUGUI>().text = $"Mana: {enemyCurrentMana}/{enemyMaxMana}";
@@ -840,11 +854,6 @@ public class GameManager : MonoBehaviour
                 }
             }
         }
-    }
-
-    public void CastSpell(CardData card)
-    {
-        ProcessAbilities(card, EffectTrigger.SPELL_USE, null);
     }
 
     public bool CanAttackUnit(UnitMover attacker, UnitMover target)
@@ -880,24 +889,6 @@ public class GameManager : MonoBehaviour
         }
         if (hasUnitInRow[0] && hasUnitInRow[1] && hasUnitInRow[2]) return false;
         return true;
-    }
-
-    UnitMover GetFrontEnemy(UnitMover me)
-    {
-        SlotInfo mySlot = me.transform.parent.GetComponent<SlotInfo>();
-        if (mySlot == null) return null;
-        Transform targetBoard = me.isPlayerUnit ? enemyBoard : GameObject.Find("PlayerBoard").transform;
-        if (targetBoard == null) return null;
-
-        foreach (Transform slot in targetBoard)
-        {
-            SlotInfo info = slot.GetComponent<SlotInfo>();
-            if (info.y == mySlot.y && info.x == 0 && slot.childCount > 0)
-            {
-                return slot.GetChild(0).GetComponent<UnitMover>();
-            }
-        }
-        return null;
     }
 
     void SetupBoard(Transform board, bool isEnemy)
@@ -1009,7 +1000,6 @@ public class ActiveBuild
     public bool isPlayerOwner;
     public bool isUnderConstruction;
     
-    // ★追加：このターンに行動したかどうかのフラグ
     public bool hasActed = false;
 
     public ActiveBuild(BuildData data, bool isPlayer)

@@ -142,8 +142,8 @@ public class BuildView : MonoBehaviour, IPointerEnterHandler, IPointerExitHandle
         {
             if (IsTargetValid(ability.target, target))
             {
-                // ★修正：GameManagerに自分自身(myBuild)を渡して発動
-                GameManager.instance.ActivateBuildAbility(ability, target, myBuild);
+                // ★修正：GameManager → AbilityManager に変更
+                AbilityManager.instance.ActivateBuildAbility(ability, target, myBuild);
                 GameManager.instance.PlaySE(GameManager.instance.seAttack);
                 return;
             }

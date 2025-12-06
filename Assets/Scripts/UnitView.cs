@@ -37,4 +37,14 @@ public class UnitView : MonoBehaviour
         attackText.text = data.attack.ToString();
         healthText.text = data.health.ToString();
     }
+    public void RefreshDisplay()
+    {
+        // 同じオブジェクトについているUnitMover（ステータス管理）を取得
+        var mover = GetComponent<UnitMover>();
+        if (mover != null)
+        {
+            if (attackText != null) attackText.text = mover.attackPower.ToString();
+            if (healthText != null) healthText.text = mover.health.ToString();
+        }
+    }
 }

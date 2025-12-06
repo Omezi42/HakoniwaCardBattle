@@ -2206,7 +2206,7 @@ MonoBehaviour:
   m_OnCullStateChanged:
     m_PersistentCalls:
       m_Calls: []
-  m_text: "\u30BF\u30A4\u30C8\u30EB\u3078"
+  m_text: "\u30E1\u30CB\u30E5\u30FC\u3078"
   m_isRightToLeft: 0
   m_fontAsset: {fileID: 11400000, guid: 588390317d74bd04ca61a26fa10670aa, type: 2}
   m_sharedMaterial: {fileID: 7280895742496017738, guid: 588390317d74bd04ca61a26fa10670aa, type: 2}
@@ -4529,6 +4529,7 @@ RectTransform:
   - {fileID: 249509027}
   - {fileID: 1487015994}
   - {fileID: 1255302310}
+  - {fileID: 1283010456}
   m_Father: {fileID: 0}
   m_LocalEulerAnglesHint: {x: 0, y: 0, z: 0}
   m_AnchorMin: {x: 0, y: 0}
@@ -5636,6 +5637,41 @@ PrefabInstance:
     m_AddedGameObjects: []
     m_AddedComponents: []
   m_SourcePrefab: {fileID: 100100000, guid: b94d50c66c4bed247919a521c79282bc, type: 3}
+--- !u!1 &1283010455
+GameObject:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  serializedVersion: 6
+  m_Component:
+  - component: {fileID: 1283010456}
+  m_Layer: 5
+  m_Name: SpellCastCenter
+  m_TagString: Untagged
+  m_Icon: {fileID: 0}
+  m_NavMeshLayer: 0
+  m_StaticEditorFlags: 0
+  m_IsActive: 1
+--- !u!224 &1283010456
+RectTransform:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 1283010455}
+  m_LocalRotation: {x: 0, y: 0, z: 0, w: 1}
+  m_LocalPosition: {x: 0, y: 0, z: 0}
+  m_LocalScale: {x: 1, y: 1, z: 1}
+  m_ConstrainProportionsScale: 0
+  m_Children: []
+  m_Father: {fileID: 868639705}
+  m_LocalEulerAnglesHint: {x: 0, y: 0, z: 0}
+  m_AnchorMin: {x: 0.5, y: 0.5}
+  m_AnchorMax: {x: 0.5, y: 0.5}
+  m_AnchoredPosition: {x: 0, y: 0}
+  m_SizeDelta: {x: 100, y: 100}
+  m_Pivot: {x: 0.5, y: 0.5}
 --- !u!1 &1286756976
 GameObject:
   m_ObjectHideFlags: 0
@@ -6617,7 +6653,7 @@ MonoBehaviour:
   m_OnCullStateChanged:
     m_PersistentCalls:
       m_Calls: []
-  m_text: "\u30E1\u30CB\u30E5\u30FC\u3078"
+  m_text: "\u3082\u3046\u3044\u3061\u3069"
   m_isRightToLeft: 0
   m_fontAsset: {fileID: 11400000, guid: 588390317d74bd04ca61a26fa10670aa, type: 2}
   m_sharedMaterial: {fileID: 7280895742496017738, guid: 588390317d74bd04ca61a26fa10670aa, type: 2}
@@ -7040,6 +7076,7 @@ GameObject:
   m_Component:
   - component: {fileID: 1587721674}
   - component: {fileID: 1587721673}
+  - component: {fileID: 1587721675}
   m_Layer: 0
   m_Name: GameManager
   m_TagString: Untagged
@@ -7094,12 +7131,6 @@ MonoBehaviour:
   - {fileID: 11400000, guid: a1c8da529f9c50b45b8b6cf0edf7386e, type: 2}
   - {fileID: 11400000, guid: 6a50232694f256c48abb46bd3b51ecae, type: 2}
   activeBuilds: []
-  leaderIcons:
-  - {fileID: 0}
-  - {fileID: 21300000, guid: 4de0fcf005674b34fae857b5e56f1fb2, type: 3}
-  - {fileID: 21300000, guid: 4a094b61cbb523b4981591565a56e870, type: 3}
-  - {fileID: 21300000, guid: dde97f4dec34ab14892a46104aa97a18, type: 3}
-  - {fileID: 21300000, guid: d66a13344993a1145b4b1b567abce08c, type: 3}
   buildUIManager: {fileID: 249509028}
   playerBuildCooldown: 0
   enemyBuildCooldown: 0
@@ -7132,6 +7163,15 @@ MonoBehaviour:
   - {fileID: 1291577172}
   manaOnSprite: {fileID: 21300000, guid: c6ff57adb0a142f48b6f06bdd5c4c3ae, type: 3}
   manaOffSprite: {fileID: 21300000, guid: 93b83e23ae50cad4f8c65d3eb1ea98d4, type: 3}
+  leaderIcons:
+  - {fileID: 0}
+  - {fileID: 21300000, guid: 4de0fcf005674b34fae857b5e56f1fb2, type: 3}
+  - {fileID: 21300000, guid: 4a094b61cbb523b4981591565a56e870, type: 3}
+  - {fileID: 21300000, guid: dde97f4dec34ab14892a46104aa97a18, type: 3}
+  - {fileID: 21300000, guid: d66a13344993a1145b4b1b567abce08c, type: 3}
+  spellCastCenter: {fileID: 1283010456}
+  currentCastingCard: {fileID: 0}
+  isTargetingMode: 0
   playerBuildArea: {fileID: 1608029468}
   enemyBuildArea: {fileID: 1711251517}
   buildIconPrefab: {fileID: 1461163522656884993, guid: 72e32710e47235b4da5b4eb77b2abf44, type: 3}
@@ -7150,6 +7190,18 @@ Transform:
   m_Children: []
   m_Father: {fileID: 0}
   m_LocalEulerAnglesHint: {x: 0, y: 0, z: 0}
+--- !u!114 &1587721675
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 1587721672}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: a7b04811c2439a546976fbbd266934bb, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: 
 --- !u!1 &1606496371
 GameObject:
   m_ObjectHideFlags: 0
@@ -7476,7 +7528,7 @@ MonoBehaviour:
       m_Calls:
       - m_Target: {fileID: 1587721673}
         m_TargetAssemblyTypeName: GameManager, Assembly-CSharp
-        m_MethodName: OnClickTitle
+        m_MethodName: OnClickMenu
         m_Mode: 1
         m_Arguments:
           m_ObjectArgument: {fileID: 0}
@@ -8181,7 +8233,7 @@ MonoBehaviour:
       m_Calls:
       - m_Target: {fileID: 1587721673}
         m_TargetAssemblyTypeName: GameManager, Assembly-CSharp
-        m_MethodName: OnClickMenu
+        m_MethodName: OnClickRetry
         m_Mode: 1
         m_Arguments:
           m_ObjectArgument: {fileID: 0}
