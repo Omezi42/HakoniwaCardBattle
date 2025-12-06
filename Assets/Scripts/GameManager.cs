@@ -405,16 +405,15 @@ public class GameManager : MonoBehaviour
             // クリックで決定
             if (Input.GetMouseButtonDown(0))
             {
-                // マウス下のオブジェクトを取得
-                targetObj = GetObjectUnderMouse();
-                if (targetObj != null)
+                // ★修正：isValidTarget が true の場合だけ発動する！
+                // （以前は targetObj != null だけで発動していました）
+                if (isValidTarget && targetObj != null)
                 {
                     TryCastSpellToTarget(targetObj);
                 }
                 else
                 {
-                    // 無効な場所クリックでキャンセル、または何もしない
-                    CancelSpellCast(); // お好みで
+                    CancelSpellCast(); 
                 }
             }
         }
@@ -425,12 +424,17 @@ public class GameManager : MonoBehaviour
         if (unit != null)
         {
             if (targetType == EffectTarget.SELECT_ENEMY_UNIT || targetType == EffectTarget.SELECT_ANY_ENEMY)
-                return !unit.isPlayerUnit; // 敵ユニットならOK
-            // 味方指定などが必要ならここに追加
+                return !unit.isPlayerUnit; 
+
+            // ★追加：ダメージを受けていない敵ユニットかチェック
+            if (targetType == EffectTarget.SELECT_UNDAMAGED_ENEMY)
+            {
+                // 敵であり、かつ HPが最大値以上（＝減っていない）ならOK
+                return !unit.isPlayerUnit && (unit.health >= unit.maxHealth);
+            }
         }
         else if (leader != null)
         {
-            // 敵リーダー判定（親の名前などで判断）
             bool isEnemyLeader = (leader.transform.parent.name == "EnemyBoard" || leader.name == "EnemyInfo");
             
             if (targetType == EffectTarget.SELECT_ENEMY_LEADER || targetType == EffectTarget.SELECT_ANY_ENEMY)
@@ -494,7 +498,8 @@ public class GameManager : MonoBehaviour
         {
             if (ab.target == EffectTarget.SELECT_ENEMY_UNIT || 
                 ab.target == EffectTarget.SELECT_ENEMY_LEADER || 
-                ab.target == EffectTarget.SELECT_ANY_ENEMY)
+                ab.target == EffectTarget.SELECT_ANY_ENEMY ||
+                ab.target == EffectTarget.SELECT_UNDAMAGED_ENEMY)
                 return true;
         }
         return false;

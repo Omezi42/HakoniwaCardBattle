@@ -136,6 +136,9 @@ public class AbilityManager : MonoBehaviour
             case EffectTarget.SELECT_ANY_ENEMY:
                 if (manualTarget != null) results.Add(manualTarget);
                 break;
+            case EffectTarget.SELECT_UNDAMAGED_ENEMY: 
+                if (manualTarget != null) results.Add(manualTarget);
+                break;
             case EffectTarget.FRONT_ALLY:
                 if (source != null)
                 {

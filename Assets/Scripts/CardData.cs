@@ -6,7 +6,7 @@ public enum CardType { UNIT, SPELL }
 // �E��
 public enum JobType { NEUTRAL, KNIGHT, MAGE, PRIEST, ROGUE }
 // ���A���e�B
-public enum Rarity { COMMON, RARE, LEGEND }
+public enum Rarity { COMMON, RARE, EPIC, LEGEND }
 
 // --- 新しい定義 ---
 
@@ -35,6 +35,7 @@ public enum EffectTarget
     SELECT_ENEMY_UNIT,   // 敵ユニットを選んで発動
     SELECT_ENEMY_LEADER, // 敵リーダーを選んで発動
     SELECT_ANY_ENEMY,     // 敵なら誰でもOK
+    SELECT_UNDAMAGED_ENEMY, // 未ダメージの敵を選んで発動
 }
 
 // 3. エフェクト（効果内容）
