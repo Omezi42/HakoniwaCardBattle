@@ -199,9 +199,15 @@ public class BuildView : MonoBehaviour, IPointerEnterHandler, IPointerExitHandle
     }
 
     // --- 既存のホバー処理 ---
+    // マウスが乗った時
     public void OnPointerEnter(PointerEventData eventData)
     {
         if (eventData.pointerDrag != null) return;
+
+        // ★追加：建築中 (isUnderConstruction == true) の時だけ表示する
+        // （つまり、建築完了していたらここで帰る）
+        if (!myBuild.isUnderConstruction) return;
+
         if (myBuild != null && GameManager.instance != null)
         {
             GameManager.instance.ShowBuildDetail(myBuild.data, myBuild.remainingTurns);

@@ -20,6 +20,6 @@ MonoBehaviour:
   duration: 2
   abilities:
   - trigger: 1
-    target: 8
+    target: 0
     effect: 9
     value: 1

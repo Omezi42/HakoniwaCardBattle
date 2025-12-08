@@ -5,6 +5,8 @@ using System.Collections.Generic;
 
 public class BuildUIManager : MonoBehaviour
 {
+    public CanvasGroup handAreaCanvasGroup;
+
     [Header("パネル全体")]
     public GameObject panelRoot; // パネルの親オブジェクト
 
@@ -52,6 +54,7 @@ public class BuildUIManager : MonoBehaviour
 
         detailArea.SetActive(true);
         ClearDetail();
+        if (handAreaCanvasGroup != null) handAreaCanvasGroup.blocksRaycasts = false;
     }
 
     void ClearDetail()
@@ -77,6 +80,9 @@ public class BuildUIManager : MonoBehaviour
     public void CloseMenu()
     {
         panelRoot.SetActive(false);
+        
+        // 手札を操作可能に戻す
+        if (handAreaCanvasGroup != null) handAreaCanvasGroup.blocksRaycasts = true;
     }
 
     void UpdateBuildList()

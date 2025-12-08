@@ -28,4 +28,4 @@ MonoBehaviour:
     target: 1
     effect: 7
     value: 0
-  cardIcon: {fileID: 21300000, guid: 48837a39b75a8ff41949e22481b28d7d, type: 3}
+  cardIcon: {fileID: 840440799, guid: 65f5871a33d0f60459db6e15f57ee227, type: 3}

@@ -6,6 +6,16 @@ public class DropPlace : MonoBehaviour, IDropHandler, IPointerEnterHandler, IPoi
     public GameObject unitPrefab;
     public bool isEnemySlot = false;
 
+    void Start() // ★追加
+    {
+        // 画像の透明部分（Alpha < 0.1）を当たり判定から除外する
+        var image = GetComponent<UnityEngine.UI.Image>();
+        if (image != null)
+        {
+            image.alphaHitTestMinimumThreshold = 0.1f;
+        }
+    }
+
     public void OnPointerEnter(PointerEventData eventData)
     {
         if (eventData.pointerDrag == null) return; // 何もドラッグしていなければ無視
@@ -99,6 +109,11 @@ public class DropPlace : MonoBehaviour, IDropHandler, IPointerEnterHandler, IPoi
 
                 // ★変更：砂煙をやめて、召喚アニメーションを再生
                 // GameManager.instance.PlayDustEffect(newUnit.transform.position); // ←削除
+                
+                // ★追加
+                if (BattleLogManager.instance != null)
+                    BattleLogManager.instance.AddLog($"{card.cardData.cardName} を召喚した", true);
+
                 unitMover.PlaySummonAnimation(); // ←追加
             }
             

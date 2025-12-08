@@ -31,6 +31,33 @@ public class CardView : MonoBehaviour, IPointerEnterHandler, IPointerExitHandler
     public GameObject glowPanel;
     public CanvasGroup canvasGroup;
 
+    [Header("裏面オブジェクト")]
+    public GameObject cardBackObject;
+
+    // ★追加：ホバー時の拡大倍率
+    private Vector3 originalScale = Vector3.one;
+    private float hoverScale = 1.5f; // 大きめに
+
+    // ★追加：ホバー時の拡大を有効にするかどうかのフラグ（デフォルトはtrue）
+    public bool enableHoverScale = true;
+
+    private Canvas myCanvas;
+
+    void Awake() // ★追加
+    {
+        myCanvas = GetComponent<Canvas>();
+        if (myCanvas == null) myCanvas = gameObject.AddComponent<Canvas>();
+    }
+
+    // ★追加：裏面の表示切り替え
+    public void ShowBack(bool show)
+    {
+        if (cardBackObject != null)
+        {
+            cardBackObject.SetActive(show);
+        }
+    }
+
     public void SetCard(CardData data)
     {
         this.cardData = data;
@@ -93,11 +120,35 @@ public class CardView : MonoBehaviour, IPointerEnterHandler, IPointerExitHandler
     {
         if (eventData.pointerDrag != null) return;
         if (GameManager.instance == null) return;
+        
+        // 詳細表示は常に行う（効果確認のため）
         GameManager.instance.ShowUnitDetail(cardData);
+
+        // ★修正：フラグがONの時だけ拡大処理を行う
+        if (enableHoverScale)
+        {
+            if (myCanvas != null)
+            {
+                myCanvas.overrideSorting = true;
+                myCanvas.sortingOrder = 100;
+            }
+            transform.localScale = Vector3.one * hoverScale;
+        }
     }
 
     public void OnPointerExit(PointerEventData eventData)
     {
         GameManager.instance.OnClickCloseDetail();
+
+        // ★修正：フラグがONの時だけ戻す処理を行う（または常に1に戻してもOK）
+        if (enableHoverScale)
+        {
+            if (myCanvas != null)
+            {
+                myCanvas.overrideSorting = false;
+                myCanvas.sortingOrder = 0;
+            }
+            transform.localScale = Vector3.one;
+        }
     }
 }

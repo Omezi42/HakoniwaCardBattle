@@ -12,6 +12,9 @@ public class Leader : MonoBehaviour, IDropHandler
     [Header("新UI")]
     public Image hpFillImage; // ★追加：緑の液体のImage（Filledタイプ）
     public bool isPlayerLeader = true; // 自分か敵か設定しておく
+
+    [Header("攻撃・効果対象エリア")]
+    public Transform atkArea; // ★追加：ここにATKAreaを登録
     void Start()
     {
         currentHp = maxHp;

@@ -45,6 +45,8 @@ public class UnitView : MonoBehaviour
         {
             if (attackText != null) attackText.text = mover.attackPower.ToString();
             if (healthText != null) healthText.text = mover.health.ToString();
+            if (mover.health < mover.maxHealth) healthText.color = Color.red;
+            else healthText.color = Color.white;
         }
     }
 }

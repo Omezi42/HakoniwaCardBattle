@@ -20,13 +20,18 @@ public class TurnCutIn : MonoBehaviour
     }
 
     // 外部から呼ぶ関数
+    // 外部から呼ぶ関数
     public void Show(string text, Color color)
     {
-        gameObject.SetActive(true);
+        // ★修正：確実にアクティブにする
+        if (!gameObject.activeSelf) gameObject.SetActive(true);
+        
+        // CanvasGroupのalphaも強制的に1からスタートしてみる（フェードインなら0からだが、見えない原因切り分けのため）
+        // いや、フェードイン処理があるので0でOKです。
+        
         titleText.text = text;
         titleText.color = color;
 
-        // アニメーション開始（もし前のが動いてたら止めて新しく始める）
         StopAllCoroutines();
         StartCoroutine(PlayAnimation());
     }

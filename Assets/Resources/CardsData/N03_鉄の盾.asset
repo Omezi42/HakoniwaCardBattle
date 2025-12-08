@@ -23,4 +23,5 @@ MonoBehaviour:
   maxInDeck: 2
   description: "\u4F53\u529B\u304C\u9AD8\u3044\u3002\u5E8F\u76E4\u306E\u58C1\u3068\u3057\u3066\u512A\u79C0\u3002"
   scriptKey: VANILLA
-  cardIcon: {fileID: 21300000, guid: ec062edfcebd7bf4abf682f39ee42f38, type: 3}
+  abilities: []
+  cardIcon: {fileID: -1184195624, guid: 65f5871a33d0f60459db6e15f57ee227, type: 3}

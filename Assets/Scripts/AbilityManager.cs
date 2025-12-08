@@ -224,57 +224,61 @@ public class AbilityManager : MonoBehaviour
 
     UnitMover GetFrontEnemy(UnitMover me)
     {
-        SlotInfo mySlot = me.transform.parent.GetComponent<SlotInfo>();
+        if (me.originalParent == null) return null;
+        SlotInfo mySlot = me.originalParent.GetComponent<SlotInfo>();
         if (mySlot == null) return null;
+        
         Transform targetBoard = me.isPlayerUnit ? GameManager.instance.enemyBoard : GameObject.Find("PlayerBoard").transform;
         if (targetBoard == null) return null;
+
+        // ★修正：X座標（レーン）が同じ敵を探す
+        // Y座標が0（前衛）を優先し、いなければ1（後衛）を探す
+        UnitMover frontEnemy = null;
+        UnitMover backEnemy = null;
 
         foreach (Transform slot in targetBoard)
         {
             SlotInfo info = slot.GetComponent<SlotInfo>();
-            if (info.y == mySlot.y && info.x == 0 && slot.childCount > 0)
+            if (info.x == mySlot.x && slot.childCount > 0)
             {
-                return slot.GetChild(0).GetComponent<UnitMover>();
+                var unit = slot.GetChild(0).GetComponent<UnitMover>();
+                if (info.y == 0) frontEnemy = unit; // 前衛
+                else if (info.y == 1) backEnemy = unit; // 後衛
             }
         }
-        return null;
+        
+        // 前衛がいれば前衛、いなければ後衛を返す
+        return frontEnemy != null ? frontEnemy : backEnemy;
     }
 
     // ★追加：正面の味方を探すメソッド
+    // ★修正：正面の味方を探すメソッド
     UnitMover GetFrontAlly(UnitMover me)
     {
         if (me.originalParent == null) return null;
         SlotInfo mySlot = me.originalParent.GetComponent<SlotInfo>();
         if (mySlot == null) return null;
         
-        // 自分のボードを取得
         Transform myBoard = me.isPlayerUnit ? GameObject.Find("PlayerBoard").transform : GameManager.instance.enemyBoard;
         if (myBoard == null) return null;
 
-        // 正面の味方のX座標を計算
-        // プレイヤー陣: 後列(0) -> 前列(1)
-        // 敵陣: 後列(1) -> 前列(0) と仮定
-        int targetX = -1;
+        // ★修正：Y座標（深さ）で判定する
+        // Y=1 (後衛) の場合のみ、Y=0 (前衛) の味方を取得できる
+        int targetY = -1;
         
-        if (me.isPlayerUnit)
+        if (mySlot.y == 1) // 自分が後衛なら
         {
-            // 自分が後列(0)なら、前(1)を見る
-            if (mySlot.x == 0) targetX = 1;
+            targetY = 0; // 前衛を探す
         }
-        else
-        {
-            // 敵が後列(1)なら、前(0)を見る
-            if (mySlot.x == 1) targetX = 0;
-        }
+        // 自分が前衛(0)なら正面の味方はいないので何もしない
 
-        // 該当するスロットを探す
-        if (targetX != -1)
+        if (targetY != -1)
         {
             foreach (Transform slot in myBoard)
             {
                 SlotInfo info = slot.GetComponent<SlotInfo>();
-                // 同じ列(Y) かつ 前方の列(X) にユニットがいるか
-                if (info.y == mySlot.y && info.x == targetX && slot.childCount > 0)
+                // 同じ列(X) かつ 指定した行(Y)
+                if (info.x == mySlot.x && info.y == targetY && slot.childCount > 0)
                 {
                     return slot.GetChild(0).GetComponent<UnitMover>();
                 }
@@ -285,7 +289,6 @@ public class AbilityManager : MonoBehaviour
 
     public void ProcessBuildEffects(EffectTrigger trigger, bool isPlayerTurnStart)
     {
-        // GameManagerのデータを参照
         var activeBuilds = GameManager.instance.activeBuilds;
         if (activeBuilds == null) return;
 
@@ -300,11 +303,20 @@ public class AbilityManager : MonoBehaviour
             {
                 if (ability.trigger == trigger)
                 {
-                    // 内部メソッドなのでそのまま呼べる
                     List<object> targets = GetTargets(ability.target, null, null); 
-                    foreach (object target in targets)
+                    
+                    // ★修正：ターゲットがない場合（ドローなど）でも1回は実行する
+                    if (targets.Count == 0 && (ability.effect == EffectType.DRAW_CARD || ability.effect == EffectType.GAIN_MANA))
                     {
-                        ApplyEffect(target, ability.effect, ability.value, null);
+                        // ターゲットnullで発動
+                        ApplyEffect(null, ability.effect, ability.value, null);
+                    }
+                    else
+                    {
+                        foreach (object target in targets)
+                        {
+                            ApplyEffect(target, ability.effect, ability.value, null);
+                        }
                     }
                 }
             }
