@@ -1,33 +1,40 @@
 using UnityEngine;
 using UnityEngine.EventSystems;
+using UnityEngine.UI; // ★Image操作用に必要
 
 public class DropPlace : MonoBehaviour, IDropHandler, IPointerEnterHandler, IPointerExitHandler
 {
     public GameObject unitPrefab;
     public bool isEnemySlot = false;
 
-    void Start() // ★追加
+    // ★追加：色変更用の変数
+    private Image myImage;
+    private Color defaultColor;
+    public Color highlightColor = new Color(1f, 1f, 0.5f, 1f); // 薄い黄色
+
+    void Start()
     {
-        // 画像の透明部分（Alpha < 0.1）を当たり判定から除外する
-        var image = GetComponent<UnityEngine.UI.Image>();
-        if (image != null)
+        myImage = GetComponent<Image>();
+        if (myImage != null)
         {
-            image.alphaHitTestMinimumThreshold = 0.1f;
+            myImage.alphaHitTestMinimumThreshold = 0.1f;
+            defaultColor = myImage.color; // 元の色を覚えておく
         }
     }
 
     public void OnPointerEnter(PointerEventData eventData)
     {
-        if (eventData.pointerDrag == null) return; // 何もドラッグしていなければ無視
+        if (eventData.pointerDrag == null) return;
 
         // 1. 手札のカードが来た場合
         CardView card = eventData.pointerDrag.GetComponent<CardView>();
         if (card != null && !isEnemySlot && transform.childCount == 0)
         {
-            // ユニットカードで、かつマナが足りているなら拡大
             if (card.cardData.type == CardType.UNIT && GameManager.instance.currentMana >= card.cardData.cost)
             {
                 card.transform.localScale = Vector3.one * 1.1f;
+                // ★追加：グリッドを光らせる
+                if (myImage != null) myImage.color = highlightColor;
             }
         }
 
@@ -35,48 +42,45 @@ public class DropPlace : MonoBehaviour, IDropHandler, IPointerEnterHandler, IPoi
         UnitMover unit = eventData.pointerDrag.GetComponent<UnitMover>();
         if (unit != null && !isEnemySlot && transform.childCount == 0)
         {
-            // 移動可能なら拡大
             if (unit.canMove && IsNeighbor(unit))
             {
                 unit.transform.localScale = Vector3.one * 1.1f;
+                // ★追加：グリッドを光らせる
+                if (myImage != null) myImage.color = highlightColor;
             }
         }
     }
 
-    // --- マウスがスロットから出た時（元に戻す） ---
     public void OnPointerExit(PointerEventData eventData)
     {
-        if (eventData.pointerDrag == null) return;
+        // ★追加：色を元に戻す
+        if (myImage != null) myImage.color = defaultColor;
 
-        // ドラッグ中のオブジェクトのスケールを戻す
+        if (eventData.pointerDrag == null) return;
         eventData.pointerDrag.transform.localScale = Vector3.one;
     }
 
-    // --- 既存のOnDrop ---
     public void OnDrop(PointerEventData eventData)
     {
-        // ドロップ時もサイズを戻しておく（念のため）
+        // ★追加：ドロップ時も色を戻す
+        if (myImage != null) myImage.color = defaultColor;
+
         eventData.pointerDrag.transform.localScale = Vector3.one;
-        // 誰が落ちてきた？
+
         CardView card = eventData.pointerDrag.GetComponent<CardView>();
         UnitMover unit = eventData.pointerDrag.GetComponent<UnitMover>();
 
-        // パターンA：手札からの「召喚」
         if (card != null)
         {
-            // ★追加：ユニットカードの場合のみ受け入れる
-            if (card.cardData.type == CardType.UNIT)
-            {
-                HandleSummon(card);
-            }
+            HandleSummon(card);
         }
-        // パターンB：盤面上の「移動」
         else if (unit != null)
         {
             HandleMove(unit);
         }
     }
 
+    // ... (IsNeighbor, HandleSummon, HandleMove は既存のまま) ...
     bool IsNeighbor(UnitMover unit)
     {
         SlotInfo mySlot = GetComponent<SlotInfo>();
@@ -91,8 +95,8 @@ public class DropPlace : MonoBehaviour, IDropHandler, IPointerEnterHandler, IPoi
 
     void HandleSummon(CardView card)
     {
-        if (isEnemySlot) return;
-        if (transform.childCount > 0) return;
+        if (isEnemySlot) return; 
+        if (transform.childCount > 0) return; 
 
         bool canPay = GameManager.instance.TryUseMana(card.cardData.cost);
         if (canPay)
@@ -104,17 +108,15 @@ public class DropPlace : MonoBehaviour, IDropHandler, IPointerEnterHandler, IPoi
                 UnitMover unitMover = newUnit.GetComponent<UnitMover>();
                 
                 unitMover.Initialize(card.cardData, !isEnemySlot);
-
                 AbilityManager.instance.ProcessAbilities(card.cardData, EffectTrigger.ON_SUMMON, unitMover);
+                unitMover.PlaySummonAnimation();
 
-                // ★変更：砂煙をやめて、召喚アニメーションを再生
-                // GameManager.instance.PlayDustEffect(newUnit.transform.position); // ←削除
-                
-                // ★追加
                 if (BattleLogManager.instance != null)
                     BattleLogManager.instance.AddLog($"{card.cardData.cardName} を召喚した", true);
-
-                unitMover.PlaySummonAnimation(); // ←追加
+            }
+            else if (card.cardData.type == CardType.SPELL)
+            {
+                AbilityManager.instance.ProcessAbilities(card.cardData, EffectTrigger.SPELL_USE, null);
             }
             
             GameManager.instance.PlaySE(GameManager.instance.seSummon);
@@ -122,15 +124,11 @@ public class DropPlace : MonoBehaviour, IDropHandler, IPointerEnterHandler, IPoi
         }
     }
 
-    // --- 移動処理 ---
     void HandleMove(UnitMover unit)
     {
         if (isEnemySlot) return;
         if (transform.childCount > 0) return;
-
-        // 移動権チェック
         if (!unit.canMove) return;
-        unit.transform.localScale = Vector3.one;
 
         SlotInfo mySlot = GetComponent<SlotInfo>();
         SlotInfo unitSlot = unit.originalParent.GetComponent<SlotInfo>();
@@ -139,11 +137,9 @@ public class DropPlace : MonoBehaviour, IDropHandler, IPointerEnterHandler, IPoi
         {
             int distance = Mathf.Abs(mySlot.x - unitSlot.x) + Mathf.Abs(mySlot.y - unitSlot.y);
 
-            // 隣（距離1）なら移動OK
             if (distance == 1)
             {
                 unit.MoveToSlot(this.transform);
-                
                 Debug.Log($"移動しました: ({unitSlot.x},{unitSlot.y}) -> ({mySlot.x},{mySlot.y})");
             }
         }
