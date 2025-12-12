@@ -592,6 +592,7 @@ RectTransform:
   - {fileID: 5061622232569102051}
   - {fileID: 6812909274958888644}
   - {fileID: 8384980932325601201}
+  - {fileID: 2991023485776468967}
   - {fileID: 5683137796490254063}
   - {fileID: 369722098358631130}
   - {fileID: 6150854905114094490}
@@ -641,6 +642,7 @@ MonoBehaviour:
   attackOrbImage: {fileID: 8477680701741447003}
   healthOrbImage: {fileID: 9038305335917733453}
   magicTypeIcon: {fileID: 3603179395221863431}
+  buildTypeIcon: {fileID: 5166073700402101786}
   unitFrames:
   - {fileID: 1128598161, guid: 4b9166affc30d4b4da171cb7f3051fe4, type: 3}
   - {fileID: -1668767921, guid: 4b9166affc30d4b4da171cb7f3051fe4, type: 3}
@@ -658,9 +660,10 @@ MonoBehaviour:
   - {fileID: -692020679, guid: 58c04cd5e3824cb42b19335538f3d0ed, type: 3}
   - {fileID: -74649774, guid: 58c04cd5e3824cb42b19335538f3d0ed, type: 3}
   costOrbSprite: {fileID: 0}
-  attackOrbSprite: {fileID: 0}
-  healthOrbSprite: {fileID: 0}
-  magicIconSprite: {fileID: 0}
+  attackOrbSprite: {fileID: 1023727204, guid: a600c81d5b912624488dad83d9edc3ba, type: 3}
+  healthOrbSprite: {fileID: 662018468, guid: a600c81d5b912624488dad83d9edc3ba, type: 3}
+  magicIconSprite: {fileID: -1407420720, guid: a917c5f92f71ef643bfe210d94c44abd, type: 3}
+  buildIconSprite: {fileID: 1082860678, guid: 29575fc0d72084f459d0a392fa1832a1, type: 3}
   glowPanel: {fileID: 7056027747989382367}
   canvasGroup: {fileID: 0}
   cardBackObject: {fileID: 3661695653467342336}
@@ -828,6 +831,81 @@ MonoBehaviour:
     m_PersistentCalls:
       m_Calls: []
   m_Sprite: {fileID: 1023727204, guid: a600c81d5b912624488dad83d9edc3ba, type: 3}
+  m_Type: 0
+  m_PreserveAspect: 0
+  m_FillCenter: 1
+  m_FillMethod: 4
+  m_FillAmount: 1
+  m_FillClockwise: 1
+  m_FillOrigin: 0
+  m_UseSpriteMesh: 0
+  m_PixelsPerUnitMultiplier: 1
+--- !u!1 &3383296747862948878
+GameObject:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  serializedVersion: 6
+  m_Component:
+  - component: {fileID: 2991023485776468967}
+  - component: {fileID: 5863455662709166450}
+  - component: {fileID: 5166073700402101786}
+  m_Layer: 5
+  m_Name: BuildIcon
+  m_TagString: Untagged
+  m_Icon: {fileID: 0}
+  m_NavMeshLayer: 0
+  m_StaticEditorFlags: 0
+  m_IsActive: 1
+--- !u!224 &2991023485776468967
+RectTransform:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 3383296747862948878}
+  m_LocalRotation: {x: 0, y: 0, z: 0, w: 1}
+  m_LocalPosition: {x: 0, y: 0, z: -0}
+  m_LocalScale: {x: 1, y: 1, z: 1}
+  m_ConstrainProportionsScale: 0
+  m_Children: []
+  m_Father: {fileID: 1751343352357762511}
+  m_LocalEulerAnglesHint: {x: 0, y: 0, z: 0}
+  m_AnchorMin: {x: 0, y: 0.5}
+  m_AnchorMax: {x: 0, y: 0.5}
+  m_AnchoredPosition: {x: 40, y: 48}
+  m_SizeDelta: {x: 120, y: 120}
+  m_Pivot: {x: 0, y: 0.5}
+--- !u!222 &5863455662709166450
+CanvasRenderer:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 3383296747862948878}
+  m_CullTransparentMesh: 1
+--- !u!114 &5166073700402101786
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 3383296747862948878}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: fe87c0e1cc204ed48ad3b37840f39efc, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: 
+  m_Material: {fileID: 0}
+  m_Color: {r: 1, g: 1, b: 1, a: 1}
+  m_RaycastTarget: 1
+  m_RaycastPadding: {x: 0, y: 0, z: 0, w: 0}
+  m_Maskable: 1
+  m_OnCullStateChanged:
+    m_PersistentCalls:
+      m_Calls: []
+  m_Sprite: {fileID: 1082860678, guid: 29575fc0d72084f459d0a392fa1832a1, type: 3}
   m_Type: 0
   m_PreserveAspect: 0
   m_FillCenter: 1

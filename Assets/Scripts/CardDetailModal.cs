@@ -68,7 +68,7 @@ public class CardDetailModal : MonoBehaviour
         if (nameText) nameText.text = data.cardName;
         if (descText) descText.text = data.description;
         
-        // ★修正：ユニットの場合もコストを表示するように変更
+        // ★修正：ビルドのステータス表示に対応
         if (statsText)
         {
             if (data.type == CardType.UNIT)
@@ -76,8 +76,14 @@ public class CardDetailModal : MonoBehaviour
                 // COST / ATK / HP を並べて表示
                 statsText.text = $"COST: {data.cost}   ATK: {data.attack} / HP: {data.health}";
             }
+            else if (data.type == CardType.BUILD)
+            {
+                // ビルドの場合は持続ターン(Duration)を表示
+                statsText.text = $"COST: {data.cost}   DUR: {data.duration}";
+            }
             else
             {
+                // スペル
                 statsText.text = $"COST: {data.cost} (Spell)";
             }
         }
@@ -87,6 +93,7 @@ public class CardDetailModal : MonoBehaviour
         if (nextButton) nextButton.interactable = (currentIndex < currentList.Count - 1);
         if (prevButton) prevButton.interactable = (currentIndex > 0);
     }
+    
     public void OnClickNext()
     {
         if (currentIndex < currentList.Count - 1)

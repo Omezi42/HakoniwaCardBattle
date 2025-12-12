@@ -1,11 +1,8 @@
 using UnityEngine;
 using System.Collections.Generic;
 
-// �J�[�h�̎��
-public enum CardType { UNIT, SPELL }
-// �E��
+public enum CardType { UNIT, SPELL, BUILD }
 public enum JobType { NEUTRAL, KNIGHT, MAGE, PRIEST, ROGUE }
-// ���A���e�B
 public enum Rarity { COMMON, RARE, EPIC, LEGEND }
 
 // --- 新しい定義 ---
@@ -69,27 +66,30 @@ public class CardAbility
 [CreateAssetMenu(fileName = "NewCard", menuName = "Hakoniwa/CardData")]
 public class CardData : ScriptableObject
 {
-    [Header("��{���")]
-    public string id;           // ID
-    public string cardName;     // ���O
-    public CardType type;       // ���
-    public JobType job;         // �E��
-    public Rarity rarity;       // ���A���e�B
+    [Header("基本情報")]
+    public string id;
+    public string cardName;
+    public CardType type;
+    public JobType job;
+    public Rarity rarity;
 
-    [Header("�p�����[�^")]
-    public int cost;            // �R�X�g
-    public int attack;          // �U����
-    public int health;          // �̗�
-    public int maxInDeck;       // �f�b�L��������
+    [Header("パラメータ")]
+    public int cost;
+    public int attack;
+    public int health;
+    public int maxInDeck;
 
-    [Header("�ڍ�")]
+    // ★追加：ビルド用のパラメータ
+    [Tooltip("ビルドの持続ターン数")]
+    public int duration; 
+
+    [Header("詳細")]
     [TextArea(2, 4)]
-    public string description;  // ������
-    public string scriptKey;    // �X�L���p�L�[
+    public string description;
+    public string scriptKey;
 
     [Header("新・スキルシステム")]
-    public List<CardAbility> abilities = new List<CardAbility>(); // 能力のリスト
+    public List<CardAbility> abilities = new List<CardAbility>();
 
-    // �摜�͌��Unity��Őݒ肵�܂�
     public Sprite cardIcon;
 }

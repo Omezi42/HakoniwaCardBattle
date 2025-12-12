@@ -25,23 +25,24 @@ public class CardView : MonoBehaviour, IPointerEnterHandler, IPointerExitHandler
     public Image costOrbImage;
     public Image attackOrbImage;
     public Image healthOrbImage;
-    public Image magicTypeIcon;   // ★追加：魔法カード用のアイコン（魔導書や魔法陣など）
+    public Image magicTypeIcon;   // 魔法カード用のアイコン
+    public Image buildTypeIcon;   // ★追加：ビルド用のアイコン（ハンマーなど）
 
     [Header("枠素材リスト (Inspectorで登録)")]
     // [0]Common, [1]Rare, [2]Epic, [3]Legend
     public Sprite[] unitFrames;   // ユニット用枠 4種
-    public Sprite[] spellFrames;  // 魔法用枠 4種
+    public Sprite[] spellFrames;  // 魔法・ビルド用枠 4種
 
     [Header("背景素材リスト")]
     // [0]Neutral, [1]Knight, [2]Mage, [3]Priest, [4]Rogue
     public Sprite[] jobBackgrounds; 
 
-    // オーブ画像（固定ならInspectorでセットしておけばコードでの代入は不要ですが念のため）
-    [Header("オーブ画像素材")]
+    [Header("オーブ・アイコン画像素材")]
     public Sprite costOrbSprite;
     public Sprite attackOrbSprite;
     public Sprite healthOrbSprite;
-    public Sprite magicIconSprite; // ★追加：魔法アイコンの画像
+    public Sprite magicIconSprite; 
+    public Sprite buildIconSprite; // ★追加：ビルドアイコンの画像
 
     [Header("UX演出")]
     public GameObject glowPanel;
@@ -51,7 +52,7 @@ public class CardView : MonoBehaviour, IPointerEnterHandler, IPointerExitHandler
     // ホバー拡大用
     [Header("機能設定")]
     public bool enableHoverScale = true;  // 拡大するか
-    public bool enableHoverDetail = true; // ★追加：詳細ウィンドウを出すか
+    public bool enableHoverDetail = true; // 詳細ウィンドウを出すか
 
     private float hoverScale = 1.5f;
     private Canvas myCanvas;
@@ -78,54 +79,66 @@ public class CardView : MonoBehaviour, IPointerEnterHandler, IPointerExitHandler
         }
 
         // --- ★修正：タイプ別の表示切り替え ---
-        if (data.type == CardType.SPELL)
+        bool isUnit = (data.type == CardType.UNIT);
+        bool isSpell = (data.type == CardType.SPELL);
+        bool isBuild = (data.type == CardType.BUILD);
+
+        // 1. 攻撃力 (ATK) - ユニットのみ表示
+        if (attackOrbImage) attackOrbImage.gameObject.SetActive(isUnit);
+        
+        if (attackText != null)
         {
-            // 魔法の場合
-            // 1. 攻撃・体力のアイコンと数値を隠す
-            if (attackOrbImage != null) attackOrbImage.gameObject.SetActive(false);
-            if (healthOrbImage != null) healthOrbImage.gameObject.SetActive(false);
-            if (attackText != null) attackText.gameObject.SetActive(false);
-            if (healthText != null) healthText.gameObject.SetActive(false);
-
-            // 2. 魔法アイコンを表示する
-            if (magicTypeIcon != null)
-            {
-                magicTypeIcon.gameObject.SetActive(true);
-                if (magicIconSprite != null) magicTypeIcon.sprite = magicIconSprite;
-            }
-
-            // 3. 魔法用の枠を適用
-            int rarityIndex = (int)data.rarity;
-            if (frameImage != null && spellFrames != null && rarityIndex < spellFrames.Length)
-            {
-                frameImage.sprite = spellFrames[rarityIndex];
-            }
+            attackText.gameObject.SetActive(isUnit);
+            if(isUnit) attackText.text = data.attack.ToString();
         }
-        else
+        
+        // 2. 体力/耐久値 (HP/DUR) - ユニットまたはビルドで表示
+        bool showHealth = isUnit || isBuild;
+
+        if (healthOrbImage) healthOrbImage.gameObject.SetActive(showHealth);
+
+        if (healthText != null)
         {
-            // ユニットの場合
-            // 1. 攻撃・体力のアイコンと数値を表示する
-            if (attackOrbImage != null) attackOrbImage.gameObject.SetActive(true);
-            if (healthOrbImage != null) healthOrbImage.gameObject.SetActive(true);
-            if (attackText != null)
+            healthText.gameObject.SetActive(showHealth);
+            if (isUnit)
             {
-                attackText.gameObject.SetActive(true);
-                attackText.text = data.attack.ToString();
-            }
-            if (healthText != null)
-            {
-                healthText.gameObject.SetActive(true);
                 healthText.text = data.health.ToString();
             }
-
-            // 2. 魔法アイコンを隠す
-            if (magicTypeIcon != null) magicTypeIcon.gameObject.SetActive(false);
-
-            // 3. ユニット用の枠を適用
-            int rarityIndex = (int)data.rarity;
-            if (frameImage != null && unitFrames != null && rarityIndex < unitFrames.Length)
+            else if (isBuild)
             {
-                frameImage.sprite = unitFrames[rarityIndex];
+                healthText.text = data.duration.ToString(); // ビルドなら持続ターンを表示
+            }
+        }
+
+        // 3. スペルアイコン
+        if (magicTypeIcon != null)
+        {
+            magicTypeIcon.gameObject.SetActive(isSpell);
+            if(isSpell && magicIconSprite != null) magicTypeIcon.sprite = magicIconSprite;
+        }
+
+        // 4. ビルドアイコン
+        if (buildTypeIcon != null)
+        {
+            buildTypeIcon.gameObject.SetActive(isBuild);
+            if(isBuild && buildIconSprite != null) buildTypeIcon.sprite = buildIconSprite;
+        }
+
+        // 5. 枠の適用
+        if (frameImage != null)
+        {
+            int rarityIndex = (int)data.rarity;
+            
+            if (isUnit)
+            {
+                if (unitFrames != null && rarityIndex < unitFrames.Length)
+                    frameImage.sprite = unitFrames[rarityIndex];
+            }
+            else
+            {
+                // スペルとビルドは共通枠（必要ならここも分けられます）
+                if (spellFrames != null && rarityIndex < spellFrames.Length)
+                    frameImage.sprite = spellFrames[rarityIndex];
             }
         }
 
@@ -163,6 +176,7 @@ public class CardView : MonoBehaviour, IPointerEnterHandler, IPointerExitHandler
         
         if (GameManager.instance != null) 
         {
+            // 必要に応じてビルド専用の詳細表示メソッドを呼ぶことも可能
             GameManager.instance.ShowUnitDetail(cardData);
         }
 

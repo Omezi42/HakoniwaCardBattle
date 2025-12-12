@@ -4,14 +4,16 @@ using UnityEngine.EventSystems;
 
 public class DeckFigure : MonoBehaviour, IPointerClickHandler, IBeginDragHandler, IDragHandler, IEndDragHandler
 {
+    [Header("UIパーツ")]
     public Image iconImage;
+
+    [Tooltip("ユニットの時だけ表示する台座や影のオブジェクト")]
+    public GameObject figureBase; // ★追加：台座オブジェクト（ビルド時は隠す）
 
     private CardData myData;
     private Transform originalParent;
     private CanvasGroup canvasGroup;
     private Vector3 startPos;
-    
-    // ★追加：元の並び順を記憶する変数
     private int originalSiblingIndex;
 
     void Awake()
@@ -23,7 +25,32 @@ public class DeckFigure : MonoBehaviour, IPointerClickHandler, IBeginDragHandler
     public void Setup(CardData data, int count)
     {
         myData = data;
-        if (data.cardIcon != null) iconImage.sprite = data.cardIcon;
+        if (data.cardIcon != null)
+        {
+            iconImage.sprite = data.cardIcon;
+            
+            // アイコンの縦横比を維持（アイテム画像が歪まないように）
+            iconImage.preserveAspect = true; 
+        }
+
+        // ★追加：タイプによる見た目の切り替え
+        if (figureBase != null)
+        {
+            if (data.type == CardType.BUILD)
+            {
+                // ビルドなら台座を隠してアイコンだけにする
+                figureBase.SetActive(false);
+                
+                // ビルドアイコンは少し小さめにするなど、必要ならサイズ調整
+                // transform.localScale = Vector3.one * 0.8f; 
+            }
+            else
+            {
+                // ユニットなら台座を表示（フィギュア風）
+                figureBase.SetActive(true);
+                // transform.localScale = Vector3.one;
+            }
+        }
     }
 
     public void OnPointerClick(PointerEventData eventData)
@@ -44,8 +71,6 @@ public class DeckFigure : MonoBehaviour, IPointerClickHandler, IBeginDragHandler
     {
         originalParent = transform.parent;
         startPos = transform.position;
-        
-        // ★追加：ドラッグ開始時の並び順を記憶
         originalSiblingIndex = transform.GetSiblingIndex();
 
         transform.SetParent(transform.root); 
@@ -61,8 +86,7 @@ public class DeckFigure : MonoBehaviour, IPointerClickHandler, IBeginDragHandler
     {
         canvasGroup.blocksRaycasts = true;
 
-        // ★修正：判定ラインを画面下部40%（0.4）に変更
-        // これより下に行ったら削除、上ならキャンセル
+        // 画面下部40%より下なら削除（カード一覧エリアに戻したとみなす）
         if (Input.mousePosition.y < Screen.height * 0.4f)
         {
             if (DeckEditManager.instance != null)
@@ -73,12 +97,9 @@ public class DeckFigure : MonoBehaviour, IPointerClickHandler, IBeginDragHandler
         }
         else
         {
-            // 削除キャンセル：元の親に戻す
+            // キャンセルして元の場所に戻る
             transform.SetParent(originalParent);
-            
-            // ★追加：記憶しておいた順番に戻す（これで勝手に並び替わらない！）
             transform.SetSiblingIndex(originalSiblingIndex);
-            
             transform.position = startPos;
         }
     }

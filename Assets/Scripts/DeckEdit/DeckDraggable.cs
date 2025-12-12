@@ -24,27 +24,18 @@ public class DeckDraggable : MonoBehaviour, IBeginDragHandler, IDragHandler, IEn
         scrollRect = GetComponentInParent<ScrollRect>();
     }
 
+    // クリック処理（そのまま）
     public void OnPointerClick(PointerEventData eventData)
     {
         if (eventData.dragging) return; 
-
         if (eventData.button == PointerEventData.InputButton.Left)
         {
-            if (eventData.clickCount == 2)
-            {
-                if (DeckEditManager.instance != null)
-                    DeckEditManager.instance.AddCardToDeck(cardData);
-            }
-            else
-            {
-                if (SimpleCardModal.instance != null)
-                    SimpleCardModal.instance.Open(cardData);
-            }
+            if (eventData.clickCount == 2) DeckEditManager.instance.AddCardToDeck(cardData);
+            else if (SimpleCardModal.instance != null) SimpleCardModal.instance.Open(cardData);
         }
         else if (eventData.button == PointerEventData.InputButton.Right)
         {
-            if (DeckEditManager.instance != null)
-                DeckEditManager.instance.AddCardToDeck(cardData);
+            DeckEditManager.instance.AddCardToDeck(cardData);
         }
     }
 
@@ -65,15 +56,14 @@ public class DeckDraggable : MonoBehaviour, IBeginDragHandler, IDragHandler, IEn
         originalSiblingIndex = transform.GetSiblingIndex();
 
         transform.SetParent(transform.root); 
-        canvasGroup.blocksRaycasts = false;
+        canvasGroup.blocksRaycasts = false; // これによりDropZoneの判定が有効になる
     }
 
     public void OnDrag(PointerEventData eventData)
     {
         if (!isDraggingCard)
         {
-            if (scrollRect != null)
-                ExecuteEvents.Execute(scrollRect.gameObject, eventData, ExecuteEvents.dragHandler);
+            if (scrollRect != null) ExecuteEvents.Execute(scrollRect.gameObject, eventData, ExecuteEvents.dragHandler);
             return;
         }
         transform.position = eventData.position;
@@ -83,23 +73,16 @@ public class DeckDraggable : MonoBehaviour, IBeginDragHandler, IDragHandler, IEn
     {
         if (!isDraggingCard)
         {
-            if (scrollRect != null)
-                ExecuteEvents.Execute(scrollRect.gameObject, eventData, ExecuteEvents.endDragHandler);
+            if (scrollRect != null) ExecuteEvents.Execute(scrollRect.gameObject, eventData, ExecuteEvents.endDragHandler);
             return;
         }
 
         canvasGroup.blocksRaycasts = true;
 
-        // ★修正：判定ラインを画面下部40%（0.4）に変更
-        // これより上に行ったら「デッキに追加」とみなす
-        if (Input.mousePosition.y > Screen.height * 0.4f)
-        {
-            if (DeckEditManager.instance != null)
-            {
-                DeckEditManager.instance.AddCardToDeck(cardData);
-            }
-        }
+        // ★削除：以前あった「高さ判定 (Input.mousePosition.y > ...)」は削除しました。
+        // これにより、DeckDropZoneの上で離さないと追加されなくなります。
 
+        // 元の場所に戻る（追加処理はDropZone側で行われるため、見た目を戻すだけでOK）
         if (transform.parent == transform.root)
         {
             transform.SetParent(originalParent);

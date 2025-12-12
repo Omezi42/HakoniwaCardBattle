@@ -23,7 +23,7 @@ public class CardListManager : MonoBehaviour
     public Button closeFilterButton;
     public Button resetFilterButton;
 
-    [Header("フィルターラベルボタン（一括操作用）")] // ★追加
+    [Header("フィルターラベルボタン")]
     public Button jobLabelButton;
     public Button costLabelButton;
     public Button rarityLabelButton;
@@ -33,7 +33,10 @@ public class CardListManager : MonoBehaviour
     public List<Toggle> jobToggles;
     public List<Toggle> costToggles;
     public List<Toggle> rarityToggles;
-    public List<Toggle> typeToggles;
+    
+    // ★重要：Inspectorでここに3つ目のトグル（ビルド用）を追加してください！
+    // [0]=Unit, [1]=Spell, [2]=Build
+    public List<Toggle> typeToggles; 
 
     private List<CardData> allCards = new List<CardData>();
     private SortMode currentSortMode = SortMode.Default;
@@ -48,18 +51,16 @@ public class CardListManager : MonoBehaviour
         if (closeFilterButton) closeFilterButton.onClick.AddListener(CloseFilterPanel);
         if (resetFilterButton) resetFilterButton.onClick.AddListener(ResetFilter);
 
-        // ★追加：ラベルボタンの登録
         if (jobLabelButton) jobLabelButton.onClick.AddListener(() => ToggleCategory(jobToggles));
         if (costLabelButton) costLabelButton.onClick.AddListener(() => ToggleCategory(costToggles));
         if (rarityLabelButton) rarityLabelButton.onClick.AddListener(() => ToggleCategory(rarityToggles));
         if (typeLabelButton) typeLabelButton.onClick.AddListener(() => ToggleCategory(typeToggles));
 
-        filterPanel.SetActive(false);
+        if (filterPanel) filterPanel.SetActive(false);
         UpdateSortButtonText();
         RefreshList();
     }
 
-    // --- 並び替え機能 ---
     void OnClickSort()
     {
         currentSortMode++;
@@ -81,63 +82,30 @@ public class CardListManager : MonoBehaviour
         }
     }
 
-    // --- フィルターパネル制御 ---
-    void OpenFilterPanel()
-    {
-        filterPanel.SetActive(true);
-    }
+    void OpenFilterPanel() => filterPanel.SetActive(true);
+    void CloseFilterPanel() => filterPanel.SetActive(false);
+    void ApplyFilter() { RefreshList(); CloseFilterPanel(); }
 
-    void CloseFilterPanel()
-    {
-        filterPanel.SetActive(false);
-    }
-
-    void ApplyFilter()
-    {
-        RefreshList();
-        CloseFilterPanel();
-    }
-
-    // ★修正：リセット時は「全てON」にする
     void ResetFilter()
     {
         if (searchInput) searchInput.text = "";
-
         SetAllToggles(jobToggles, true);
         SetAllToggles(costToggles, true);
         SetAllToggles(rarityToggles, true);
         SetAllToggles(typeToggles, true);
     }
 
-    // ★追加：カテゴリごとの一括切り替え（全選択/全解除）
     void ToggleCategory(List<Toggle> toggles)
     {
         if (toggles == null || toggles.Count == 0) return;
-
-        // 現在「全てON」になっているかチェック
-        bool allOn = true;
-        foreach (var t in toggles)
-        {
-            if (!t.isOn)
-            {
-                allOn = false;
-                break;
-            }
-        }
-
-        // 全てONなら「全てOFF」に、それ以外（一部OFFや全部OFF）なら「全てON」にする
-        bool newState = !allOn;
-        SetAllToggles(toggles, newState);
+        bool allOn = toggles.All(t => t.isOn);
+        SetAllToggles(toggles, !allOn);
     }
 
-    // トグルリストの状態を一括設定するヘルパー関数
     void SetAllToggles(List<Toggle> toggles, bool state)
     {
         if (toggles == null) return;
-        foreach (var t in toggles)
-        {
-            if (t != null) t.isOn = state;
-        }
+        foreach (var t in toggles) if (t != null) t.isOn = state;
     }
 
     // --- リスト更新ロジック ---
@@ -147,17 +115,28 @@ public class CardListManager : MonoBehaviour
 
         var filtered = allCards.Where(card => CheckFilter(card)).ToList();
 
+        // ★修正：どのソートモードでも「ビルド(タイプ2)」を一番後ろにする
         switch (currentSortMode)
         {
             case SortMode.Cost:
-                filtered = filtered.OrderBy(c => c.cost).ThenBy(c => c.id).ToList();
+                filtered = filtered
+                    .OrderBy(c => c.type == CardType.BUILD ? 1 : 0) // ビルドなら1(後ろ)、それ以外は0(前)
+                    .ThenBy(c => c.cost)
+                    .ThenBy(c => c.id)
+                    .ToList();
                 break;
             case SortMode.Name:
-                filtered = filtered.OrderBy(c => c.cardName).ToList();
+                filtered = filtered
+                    .OrderBy(c => c.type == CardType.BUILD ? 1 : 0)
+                    .ThenBy(c => c.cardName)
+                    .ToList();
                 break;
             case SortMode.Default:
             default:
-                filtered = filtered.OrderBy(c => c.id).ToList();
+                filtered = filtered
+                    .OrderBy(c => c.type == CardType.BUILD ? 1 : 0)
+                    .ThenBy(c => c.id)
+                    .ToList();
                 break;
         }
 
@@ -168,6 +147,7 @@ public class CardListManager : MonoBehaviour
 
             GameObject obj = Instantiate(cardPrefab, contentParent);
             
+            // 不要なコンポーネント削除（一覧表示用）
             var drag = obj.GetComponent<Draggable>();
             if (drag != null) Destroy(drag);
             var deckDrag = obj.GetComponent<DeckDraggable>();
@@ -181,56 +161,53 @@ public class CardListManager : MonoBehaviour
                 view.enableHoverDetail = false;
             }
 
+            // クリックで詳細
             Button btn = obj.GetComponent<Button>();
             if (btn == null) btn = obj.AddComponent<Button>();
             btn.onClick.AddListener(() => 
             {
-                CardDetailModal.instance.Open(filtered, index);
+                if (CardDetailModal.instance != null)
+                    CardDetailModal.instance.Open(filtered, index);
             });
         }
     }
 
     bool CheckFilter(CardData card)
     {
-        if (!string.IsNullOrEmpty(searchInput.text))
+        if (searchInput != null && !string.IsNullOrEmpty(searchInput.text))
         {
             if (!card.cardName.Contains(searchInput.text)) return false;
         }
 
-        // ★ロジック変更なし（全てOFFなら全表示というロジックは維持しても良いが、
-        // リセットで全ONにするなら、素直にONのものだけ通すロジックでOK）
-
-        // Job
         if (!CheckToggleGroup(jobToggles, (int)card.job)) return false;
 
-        // Cost
-        int costIndex = card.cost;
-        if (costIndex > 9) costIndex = 9;
+        int costIndex = card.cost > 9 ? 9 : card.cost;
         if (!CheckToggleGroup(costToggles, costIndex)) return false;
 
-        // Rarity
         if (!CheckToggleGroup(rarityToggles, (int)card.rarity)) return false;
 
-        // Type
+        // Type: 0=Unit, 1=Spell, 2=Build
+        // トグルが足りていない場合、リスト外参照エラーを防ぐためにチェック
         if (!CheckToggleGroup(typeToggles, (int)card.type)) return false;
 
         return true;
     }
 
-    // 指定したインデックスのトグルがONか、または「全OFF（＝絞り込みなし）」かを判定
     bool CheckToggleGroup(List<Toggle> toggles, int index)
     {
-        // 全てOFFなら「条件なし」とみなして通過させる（お好みで）
-        // 今回は「リセット＝全ON」にしたので、厳密にチェックしても良いですが、
-        // ユーザビリティのために「全OFF＝全表示」の挙動を残しておくと便利です。
-        bool anyOn = false;
-        foreach (var t in toggles) if (t.isOn) { anyOn = true; break; }
-        if (!anyOn) return true;
+        // 全OFFなら全表示にする場合はここを調整（今回はリセットで全ONにする仕様）
+        bool anyOn = toggles.Any(t => t.isOn);
+        if (!anyOn) return true; // ユーザビリティのため全OFF＝全表示とみなす
 
         if (index >= 0 && index < toggles.Count)
         {
             return toggles[index].isOn;
         }
+        
+        // ★修正：トグルリストより大きいインデックス（新タイプなど）が来た場合
+        // 「トグルがない＝フィルタリング対象外」として表示してしまうか、隠すか。
+        // ここでは「トグル未設定のタイプは表示されない」ように false を返します。
+        // （つまり、Unity側でトグルを追加しないとビルドは表示されません！）
         return false;
     }
 
