@@ -3,76 +3,118 @@ using UnityEngine.UI;
 using TMPro;
 using System.Collections.Generic;
 using UnityEngine.SceneManagement;
-using System.Linq; // ★追加：枚数カウントなどで使用
+using System.Linq;
+using UnityEngine.EventSystems;
 
 public class DeckEditManager : MonoBehaviour
 {
     public static DeckEditManager instance;
 
-    [Header("パネル切替")]
-    public GameObject deckListPanel; // デッキ選択・作成画面
-    public GameObject editPanel;     // カードドラッグ画面
-    public GameObject newDeckPopup;  // ジョブ選択ポップアップ
+    [Header("UI References")]
+    [Tooltip("上段、中段、下段の順でアサインしてください")]
+    public Transform[] deckShelfRows;
 
-    [Header("デッキリスト用")]
+    [Header("新機能UI")]
+    public TMP_InputField deckNameInput; // ★デッキ名変更用
+    public ManaCurveGraph manaCurveGraph; // ★マナカーブグラフ
+    
+    [Header("パネル切替")]
+    public GameObject deckListPanel;
+    public GameObject editPanel;
+    public GameObject newDeckPopup;
+
+    [Header("デッキリスト画面用")]
     public Transform deckButtonContainer;
-    public GameObject deckButtonPrefab; // デッキを選択するボタン
+    public GameObject deckButtonPrefab;
 
     [Header("編集画面用")]
-    public Transform inventoryContent;
-    public Transform deckContent;
-    public GameObject cardPrefab;
+    public GameObject deckCardPrefab;      // 上部フィギュア
+    public Transform cardListContent;      // 下部リストContent
+    public GameObject listCardPrefab;      // 下部リストカード
+    
     public TextMeshProUGUI deckCountText;
-    public TextMeshProUGUI currentDeckNameText;
+    
+    // --- フィルター関連UI ---
+    [Header("フィルターUI")]
+    public Button filterButton;      
+    public GameObject filterPanel;   
+    public TMP_InputField searchInput;
+    public Button applyFilterButton;
+    public Button closeFilterButton;
+    public Button resetFilterButton;
 
-    // 現在編集中のデータ
+    public Button jobLabelButton;
+    public Button costLabelButton;
+    public Button rarityLabelButton;
+    public Button typeLabelButton;
+
+    public List<Toggle> jobToggles;
+    public List<Toggle> costToggles;
+    public List<Toggle> rarityToggles;
+    public List<Toggle> typeToggles;
+    // --------------------------------
+
     private DeckData currentDeck;
+    private const int CARDS_PER_ROW = 10;
     private List<string> editingCardIds = new List<string>();
 
     void Awake() => instance = this;
 
     void Start()
     {
+        // フィルターボタン登録（省略なし）
+        if (filterButton) filterButton.onClick.AddListener(() => filterPanel.SetActive(true));
+        if (applyFilterButton) applyFilterButton.onClick.AddListener(() => { RefreshEditUI(); filterPanel.SetActive(false); });
+        if (closeFilterButton) closeFilterButton.onClick.AddListener(() => filterPanel.SetActive(false));
+        if (resetFilterButton) resetFilterButton.onClick.AddListener(ResetFilter);
+
+        if (jobLabelButton) jobLabelButton.onClick.AddListener(() => ToggleCategory(jobToggles));
+        if (costLabelButton) costLabelButton.onClick.AddListener(() => ToggleCategory(costToggles));
+        if (rarityLabelButton) rarityLabelButton.onClick.AddListener(() => ToggleCategory(rarityToggles));
+        if (typeLabelButton) typeLabelButton.onClick.AddListener(() => ToggleCategory(typeToggles));
+
+        if (filterPanel) filterPanel.SetActive(false);
+        
+        // ★追加：名前入力欄のリスナー登録
+        if (deckNameInput != null)
+        {
+            deckNameInput.onEndEdit.AddListener(OnDeckNameChanged);
+        }
+
         ShowDeckListPanel();
     }
 
-    // --- 1. デッキリスト画面 ---
-
-    public void ShowDeckListPanel()
-    {
-        deckListPanel.SetActive(true);
-        editPanel.SetActive(false);
-        newDeckPopup.SetActive(false);
-
-        foreach (Transform child in deckButtonContainer) Destroy(child.gameObject);
+    // --- デッキリスト画面 ---
+    public void ShowDeckListPanel() 
+    { 
+        deckListPanel.SetActive(true); 
+        editPanel.SetActive(false); 
+        newDeckPopup.SetActive(false); 
         
-        var decks = PlayerDataManager.instance.playerData.decks;
-        for (int i = 0; i < decks.Count; i++)
-        {
-            int index = i;
-            GameObject btn = Instantiate(deckButtonPrefab, deckButtonContainer);
-            btn.GetComponentInChildren<TextMeshProUGUI>().text = $"{decks[i].deckName} ({decks[i].deckJob})";
-            btn.GetComponent<Button>().onClick.AddListener(() => StartEditing(index));
-        }
-    }
-
-    public void OnClickNewDeck()
-    {
-        newDeckPopup.SetActive(true);
-    }
-
-    public void OnSelectJobForNewDeck(int jobIndex)
-    {
-        DeckData newDeck = new DeckData();
-        newDeck.deckName = $"Deck {PlayerDataManager.instance.playerData.decks.Count + 1}";
-        newDeck.deckJob = (JobType)jobIndex;
+        foreach (Transform child in deckButtonContainer) Destroy(child.gameObject); 
         
-        PlayerDataManager.instance.playerData.decks.Add(newDeck);
-        StartEditing(PlayerDataManager.instance.playerData.decks.Count - 1);
+        var decks = PlayerDataManager.instance.playerData.decks; 
+        for (int i = 0; i < decks.Count; i++) 
+        { 
+            int index = i; 
+            GameObject btn = Instantiate(deckButtonPrefab, deckButtonContainer); 
+            var text = btn.GetComponentInChildren<TextMeshProUGUI>(); 
+            if(text) text.text = $"{decks[i].deckName} ({decks[i].deckJob})"; 
+            btn.GetComponent<Button>().onClick.AddListener(() => StartEditing(index)); 
+        } 
+    }
+    
+    public void OnClickNewDeck() { newDeckPopup.SetActive(true); }
+    public void OnSelectJobForNewDeck(int jobIndex) 
+    { 
+        DeckData newDeck = new DeckData(); 
+        newDeck.deckName = $"Deck {PlayerDataManager.instance.playerData.decks.Count + 1}"; 
+        newDeck.deckJob = (JobType)jobIndex; 
+        PlayerDataManager.instance.playerData.decks.Add(newDeck); 
+        StartEditing(PlayerDataManager.instance.playerData.decks.Count - 1); 
     }
 
-    // --- 2. 編集画面 ---
-
+    // --- 編集開始 ---
     public void StartEditing(int deckIndex)
     {
         PlayerDataManager.instance.playerData.currentDeckIndex = deckIndex;
@@ -83,106 +125,169 @@ public class DeckEditManager : MonoBehaviour
         newDeckPopup.SetActive(false);
         editPanel.SetActive(true);
 
-        currentDeckNameText.text = $"Editing: {currentDeck.deckName} ({currentDeck.deckJob})";
+        // ★追加：名前入力欄に現在の名前を反映
+        if(deckNameInput != null) deckNameInput.text = currentDeck.deckName;
         
+        ResetFilter();
         RefreshEditUI();
     }
 
-    // ★追加：ドロップ時の処理（これがないとエラーになります）
+    // --- UI更新 ---
+    public void RefreshEditUI()
+    {
+        // 1. 下部リスト（所持カード）更新
+        foreach (Transform child in cardListContent) Destroy(child.gameObject);
+        
+        var allCards = Resources.LoadAll<CardData>("CardsData").ToList();
+        var filteredCards = allCards
+            .Where(c => (c.job == JobType.NEUTRAL || c.job == currentDeck.deckJob))
+            .Where(c => CheckFilter(c))
+            .OrderBy(c => c.job == JobType.NEUTRAL)
+            .ThenBy(c => c.cost)
+            .ThenBy(c => c.id)
+            .ToList();
+
+        foreach (var card in filteredCards)
+        {
+            GameObject obj = Instantiate(listCardPrefab, cardListContent);
+            var draggable = obj.AddComponent<DeckDraggable>();
+            draggable.Setup(card);
+            var view = obj.GetComponent<CardView>();
+            if (view != null) 
+            {
+                view.SetCard(card);
+                view.enableHoverScale = false;
+                view.enableHoverDetail = false;
+            }
+            
+            var btn = obj.GetComponent<Button>();
+            if(btn == null) btn = obj.AddComponent<Button>();
+            
+            var trigger = obj.AddComponent<EventTrigger>();
+            EventTrigger.Entry entryClick = new EventTrigger.Entry();
+            entryClick.eventID = EventTriggerType.PointerClick;
+            entryClick.callback.AddListener((data) => 
+            {
+                PointerEventData pData = (PointerEventData)data;
+                if (pData.button == PointerEventData.InputButton.Left)
+                {
+                     if (SimpleCardModal.instance != null) SimpleCardModal.instance.Open(card);
+                }
+                else if (pData.button == PointerEventData.InputButton.Right)
+                {
+                     AddCardToDeck(card);
+                }
+            });
+            trigger.triggers.Add(entryClick);
+        }
+
+        // 2. 上部デッキ（3段棚）更新
+        if (deckShelfRows != null)
+        {
+            foreach (Transform row in deckShelfRows)
+                if (row != null) foreach (Transform child in row) Destroy(child.gameObject);
+        }
+        
+        var sortedDeckCards = editingCardIds
+            .Select(id => PlayerDataManager.instance.GetCardById(id))
+            .Where(data => data != null)
+            .OrderBy(data => data.cost)
+            .ThenBy(data => data.id)
+            .ToList();
+
+        for (int i = 0; i < sortedDeckCards.Count; i++)
+        {
+            CardData cardData = sortedDeckCards[i];
+            int rowIndex = i / CARDS_PER_ROW;
+            if (deckShelfRows != null && rowIndex >= deckShelfRows.Length) rowIndex = deckShelfRows.Length - 1;
+            Transform targetRow = (deckShelfRows != null && deckShelfRows.Length > rowIndex) ? deckShelfRows[rowIndex] : null;
+
+            if (targetRow != null)
+            {
+                GameObject obj = Instantiate(deckCardPrefab, targetRow);
+                var figure = obj.GetComponent<DeckFigure>();
+                if (figure != null) figure.Setup(cardData, 1);
+            }
+        }
+        
+        if (deckCountText) deckCountText.text = $"{editingCardIds.Count} / 30";
+        if (deckCountText) deckCountText.color = (editingCardIds.Count == 30) ? Color.green : Color.white;
+
+        // ★追加：マナカーブグラフの更新
+        if (manaCurveGraph != null)
+        {
+            manaCurveGraph.UpdateGraph(sortedDeckCards);
+        }
+    }
+
+    // --- フィルター関連ロジック ---
+    void ResetFilter() { if (searchInput) searchInput.text = ""; SetAllToggles(jobToggles, true); SetAllToggles(costToggles, true); SetAllToggles(rarityToggles, true); SetAllToggles(typeToggles, true); }
+    void ToggleCategory(List<Toggle> toggles) { if (toggles == null || toggles.Count == 0) return; bool allOn = toggles.All(t => t.isOn); SetAllToggles(toggles, !allOn); }
+    void SetAllToggles(List<Toggle> toggles, bool state) { if (toggles == null) return; foreach (var t in toggles) if (t != null) t.isOn = state; }
+    bool CheckFilter(CardData card) { if (searchInput != null && !string.IsNullOrEmpty(searchInput.text)) if (!card.cardName.Contains(searchInput.text)) return false; if (!CheckToggleGroup(jobToggles, (int)card.job)) return false; int costIndex = card.cost > 9 ? 9 : card.cost; if (!CheckToggleGroup(costToggles, costIndex)) return false; if (!CheckToggleGroup(rarityToggles, (int)card.rarity)) return false; if (!CheckToggleGroup(typeToggles, (int)card.type)) return false; return true; }
+    bool CheckToggleGroup(List<Toggle> toggles, int index) { if (toggles == null || toggles.Count == 0) return true; if (index >= 0 && index < toggles.Count) return toggles[index].isOn; return false; }
+
+    // --- デッキ操作 ---
+    public void RemoveCardFromDeck(CardData card)
+    {
+        if (editingCardIds.Contains(card.id))
+        {
+            editingCardIds.Remove(card.id);
+            RefreshEditUI();
+        }
+    }
+    
+    public void AddCardToDeck(CardData card)
+    {
+         if (editingCardIds == null) return;
+         if (editingCardIds.Count >= 30) return;
+         int count = editingCardIds.Count(id => id == card.id);
+         if (count >= card.maxInDeck) return;
+         editingCardIds.Add(card.id);
+         RefreshEditUI();
+    }
+
+    // --- ★新機能：ボタン・入力イベント ---
+
+    // 1. デッキ名変更
+    public void OnDeckNameChanged(string newName)
+    {
+        if (currentDeck != null)
+        {
+            currentDeck.deckName = newName;
+            // 即セーブはせず、セーブボタンで確定させるならここは変数更新だけでOK
+            // ですが、念のためデータには反映しておきます
+        }
+    }
+
+    // 2. セーブボタン
+    public void OnClickSave()
+    {
+        if (currentDeck != null)
+        {
+            currentDeck.cardIds = new List<string>(editingCardIds);
+            
+            // InputFieldの値も念のため反映
+            if (deckNameInput != null) currentDeck.deckName = deckNameInput.text;
+
+            PlayerDataManager.instance.Save();
+            Debug.Log("デッキを保存しました！");
+            
+            // 保存完了エフェクトなどを出すと親切です
+        }
+    }
+
+    // 3. 戻るボタン（一覧へ戻る）
+    public void OnClickReturn()
+    {
+        // ★未保存の警告などを出す場合はここに処理を追加
+        ShowDeckListPanel();
+    }
+
+    // ドラッグ＆ドロップ対応
     public void OnCardDrop(CardData card, ZoneType targetZone)
     {
-        // A. デッキに入れようとした時
-        if (targetZone == ZoneType.Deck)
-        {
-            // 1. デッキ枚数上限チェック (30枚)
-            if (editingCardIds.Count >= 30)
-            {
-                Debug.Log("デッキが満杯です！");
-                return;
-            }
-
-            // 2. 同名カードの枚数制限チェック
-            int currentCount = editingCardIds.Count(id => id == card.id);
-            if (currentCount >= card.maxInDeck)
-            {
-                Debug.Log($"{card.cardName} はこれ以上デッキに入れられません");
-                return;
-            }
-
-            // 3. ジョブ縛りチェック
-            if (card.job != JobType.NEUTRAL && card.job != currentDeck.deckJob)
-            {
-                Debug.Log("異なるジョブのカードは入れられません");
-                return;
-            }
-
-            // 追加
-            editingCardIds.Add(card.id);
-        }
-        // B. 所持リストに戻そうとした時（デッキから外す）
-        else if (targetZone == ZoneType.Inventory)
-        {
-            if (editingCardIds.Contains(card.id))
-            {
-                editingCardIds.Remove(card.id);
-            }
-        }
-
-        RefreshEditUI();
-    }
-
-    void RefreshEditUI()
-    {
-        // --- インベントリ表示 ---
-        foreach (Transform child in inventoryContent) Destroy(child.gameObject);
-
-        // 全カードから「共通(NEUTRAL)」または「デッキと同じジョブ」のみ抽出
-        List<CardData> allCards = new List<CardData>(Resources.LoadAll<CardData>("CardsData"));
-        
-        foreach (var card in allCards)
-        {
-            if (card.job == JobType.NEUTRAL || card.job == currentDeck.deckJob)
-            {
-                // インベントリ側はゾーン指定 Inventory
-                CreateCard(card, inventoryContent, ZoneType.Inventory);
-            }
-        }
-
-        // --- デッキ内容表示 ---
-        foreach (Transform child in deckContent) Destroy(child.gameObject);
-        foreach (string id in editingCardIds)
-        {
-            CardData card = PlayerDataManager.instance.GetCardById(id);
-            if (card != null) 
-            {
-                // デッキ側はゾーン指定 Deck
-                CreateCard(card, deckContent, ZoneType.Deck);
-            }
-        }
-
-        deckCountText.text = $"{editingCardIds.Count} / 30";
-    }
-
-    void CreateCard(CardData data, Transform parent, ZoneType zone)
-    {
-        GameObject obj = Instantiate(cardPrefab, parent);
-        
-        // 表示セットアップ
-        CardView view = obj.GetComponent<CardView>();
-        if (view != null) view.SetCard(data);
-
-        // 古いドラッグ機能を消して新しいものをつける
-        Draggable oldDrag = obj.GetComponent<Draggable>();
-        if (oldDrag != null) DestroyImmediate(oldDrag);
-
-        DeckDraggable newDrag = obj.AddComponent<DeckDraggable>();
-        newDrag.Setup(data);
-    }
-
-    public void SaveAndExit()
-    {
-        currentDeck.cardIds = new List<string>(editingCardIds);
-        PlayerDataManager.instance.Save();
-        SceneManager.LoadScene("MenuScene");
+        if (targetZone == ZoneType.Deck) AddCardToDeck(card);
+        else if (targetZone == ZoneType.Inventory) RemoveCardFromDeck(card);
     }
 }

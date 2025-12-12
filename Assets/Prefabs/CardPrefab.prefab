@@ -890,6 +890,7 @@ MonoBehaviour:
   canvasGroup: {fileID: 0}
   cardBackObject: {fileID: 8820455835937237734}
   enableHoverScale: 1
+  enableHoverDetail: 1
 --- !u!225 &3787840612948511340
 CanvasGroup:
   m_ObjectHideFlags: 0
@@ -1165,10 +1166,10 @@ RectTransform:
   m_Children: []
   m_Father: {fileID: 1807522608715800252}
   m_LocalEulerAnglesHint: {x: 0, y: 0, z: 0}
-  m_AnchorMin: {x: 0.5, y: 0.5}
-  m_AnchorMax: {x: 0.5, y: 0.5}
+  m_AnchorMin: {x: 0, y: 0}
+  m_AnchorMax: {x: 1, y: 1}
   m_AnchoredPosition: {x: 0, y: 0}
-  m_SizeDelta: {x: 130, y: 200}
+  m_SizeDelta: {x: 0, y: 0}
   m_Pivot: {x: 0.5, y: 0.5}
 --- !u!222 &6872896274069633723
 CanvasRenderer:

@@ -3,7 +3,7 @@ using UnityEngine.EventSystems;
 
 public class BuildSlotClick : MonoBehaviour, IPointerClickHandler, IPointerEnterHandler, IPointerExitHandler
 {
-    public bool isPlayerSlot = true; // 自分用ならON、敵用ならOFF
+    public bool isPlayerSlot = true;
 
     public void OnPointerClick(PointerEventData eventData)
     {

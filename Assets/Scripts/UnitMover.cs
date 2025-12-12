@@ -88,12 +88,21 @@ public class UnitMover : MonoBehaviour, IBeginDragHandler, IDragHandler, IEndDra
     public void OnPointerEnter(PointerEventData eventData)
     {
         if (eventData.pointerDrag != null) return;
-        if (sourceData != null) GameManager.instance.ShowUnitDetail(sourceData);
+        
+        // ★修正：GameManagerが存在する時だけ詳細を表示する
+        if (sourceData != null && GameManager.instance != null)
+        {
+            GameManager.instance.ShowUnitDetail(sourceData);
+        }
     }
 
     public void OnPointerExit(PointerEventData eventData)
     {
-        GameManager.instance.OnClickCloseDetail();
+        // ★修正：GameManagerが存在する時だけ閉じる処理を呼ぶ
+        if (GameManager.instance != null)
+        {
+            GameManager.instance.OnClickCloseDetail();
+        }
     }
     
     public void OnBeginDrag(PointerEventData eventData)

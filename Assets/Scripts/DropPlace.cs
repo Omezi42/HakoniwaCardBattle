@@ -1,24 +1,25 @@
 using UnityEngine;
 using UnityEngine.EventSystems;
-using UnityEngine.UI; // ★Image操作用に必要
+using UnityEngine.UI;
 
 public class DropPlace : MonoBehaviour, IDropHandler, IPointerEnterHandler, IPointerExitHandler
 {
     public GameObject unitPrefab;
     public bool isEnemySlot = false;
 
-    // ★追加：色変更用の変数
     private Image myImage;
     private Color defaultColor;
-    public Color highlightColor = new Color(1f, 1f, 0.5f, 1f); // 薄い黄色
+    public Color highlightColor = new Color(1f, 1f, 0.5f, 1f);
 
     void Start()
     {
         myImage = GetComponent<Image>();
         if (myImage != null)
         {
+            // ★重要：画像の透明部分を当たり判定から除外
+            // （これを行うには画像のImport Settingsで "Read/Write Enabled" をONにする必要があります）
             myImage.alphaHitTestMinimumThreshold = 0.1f;
-            defaultColor = myImage.color; // 元の色を覚えておく
+            defaultColor = myImage.color;
         }
     }
 
@@ -26,26 +27,22 @@ public class DropPlace : MonoBehaviour, IDropHandler, IPointerEnterHandler, IPoi
     {
         if (eventData.pointerDrag == null) return;
 
-        // 1. 手札のカードが来た場合
         CardView card = eventData.pointerDrag.GetComponent<CardView>();
         if (card != null && !isEnemySlot && transform.childCount == 0)
         {
             if (card.cardData.type == CardType.UNIT && GameManager.instance.currentMana >= card.cardData.cost)
             {
                 card.transform.localScale = Vector3.one * 1.1f;
-                // ★追加：グリッドを光らせる
                 if (myImage != null) myImage.color = highlightColor;
             }
         }
 
-        // 2. 盤面のユニットが来た場合（移動）
         UnitMover unit = eventData.pointerDrag.GetComponent<UnitMover>();
         if (unit != null && !isEnemySlot && transform.childCount == 0)
         {
             if (unit.canMove && IsNeighbor(unit))
             {
                 unit.transform.localScale = Vector3.one * 1.1f;
-                // ★追加：グリッドを光らせる
                 if (myImage != null) myImage.color = highlightColor;
             }
         }
@@ -53,34 +50,35 @@ public class DropPlace : MonoBehaviour, IDropHandler, IPointerEnterHandler, IPoi
 
     public void OnPointerExit(PointerEventData eventData)
     {
-        // ★追加：色を元に戻す
         if (myImage != null) myImage.color = defaultColor;
 
         if (eventData.pointerDrag == null) return;
-        eventData.pointerDrag.transform.localScale = Vector3.one;
+        // ドラッグ中のオブジェクトのサイズを戻す
+        // （ただしDraggable側で制御しているので、ここでは何もしなくて良い場合もあるが念のため）
+        // eventData.pointerDrag.transform.localScale = Vector3.one; 
+        // ※OnDragでサイズ制御している場合は競合するので削除推奨、今回はハイライトだけ戻す
     }
 
     public void OnDrop(PointerEventData eventData)
     {
-        // ★追加：ドロップ時も色を戻す
         if (myImage != null) myImage.color = defaultColor;
-
-        eventData.pointerDrag.transform.localScale = Vector3.one;
 
         CardView card = eventData.pointerDrag.GetComponent<CardView>();
         UnitMover unit = eventData.pointerDrag.GetComponent<UnitMover>();
-
+        
         if (card != null)
         {
+            // ドロップ時はサイズを戻す
+            card.transform.localScale = Vector3.one;
             HandleSummon(card);
         }
         else if (unit != null)
         {
+            unit.transform.localScale = Vector3.one;
             HandleMove(unit);
         }
     }
 
-    // ... (IsNeighbor, HandleSummon, HandleMove は既存のまま) ...
     bool IsNeighbor(UnitMover unit)
     {
         SlotInfo mySlot = GetComponent<SlotInfo>();
@@ -116,6 +114,7 @@ public class DropPlace : MonoBehaviour, IDropHandler, IPointerEnterHandler, IPoi
             }
             else if (card.cardData.type == CardType.SPELL)
             {
+                // ここには来ないはず（Draggableで処理）だが念のため
                 AbilityManager.instance.ProcessAbilities(card.cardData, EffectTrigger.SPELL_USE, null);
             }
             
@@ -136,7 +135,6 @@ public class DropPlace : MonoBehaviour, IDropHandler, IPointerEnterHandler, IPoi
         if (mySlot != null && unitSlot != null)
         {
             int distance = Mathf.Abs(mySlot.x - unitSlot.x) + Mathf.Abs(mySlot.y - unitSlot.y);
-
             if (distance == 1)
             {
                 unit.MoveToSlot(this.transform);
