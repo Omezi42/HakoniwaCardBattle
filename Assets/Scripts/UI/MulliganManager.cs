@@ -36,31 +36,42 @@ public class MulliganManager : MonoBehaviour
             CardData data = initialHand[i];
             
             GameObject obj = Instantiate(mulliganCardPrefab, cardContainer);
+            obj.transform.localScale = Vector3.one; // スケールリセット
             
-            // ★追加：生成後にスケールを確実に1にする
-            obj.transform.localScale = Vector3.one;
+            // ドラッグ機能を削除（クリックの邪魔になるため）
+            var drag = obj.GetComponent<Draggable>();
+            if (drag != null) Destroy(drag);
             
-            // カードの見た目をセット（CardViewなどを流用）
-            // ※MulliganCardUIという専用スクリプトを作って操作しても良いですが、
-            // 今回は簡易的に既存のCardViewを使い、クリック判定を被せます
+            var deckDrag = obj.GetComponent<DeckDraggable>();
+            if (deckDrag != null) Destroy(deckDrag);
+
+            // カードの見た目をセット
             var view = obj.GetComponent<CardView>();
             if(view != null) 
             {
                 view.SetCard(data);
                 
-                // ★追加：マリガン時は拡大しないように設定！
-                view.enableHoverScale = false;
+                // ★修正：拡大表示系をすべてオフにする
+                view.enableHoverScale = false;  // マウスを乗せても大きくならない
+                view.enableHoverDetail = false; // マウスを乗せても詳細パネルを出さない
             }
 
-            // 選択状態の表示（バツ印や暗転など）
-            var selectionOverlay = obj.transform.Find("SelectionOverlay"); // プレハブに作っておく
+            // 選択状態の表示
+            var selectionOverlay = obj.transform.Find("SelectionOverlay");
             if (selectionOverlay != null) selectionOverlay.gameObject.SetActive(replaceFlags[index]);
 
-            // クリック処理
             // クリック処理
             var btn = obj.GetComponent<Button>();
             if (btn == null) btn = obj.AddComponent<Button>();
 
+            // Imageがないとクリックできないので透明なImageを追加
+            if (obj.GetComponent<Image>() == null)
+            {
+                var img = obj.AddComponent<Image>();
+                img.color = Color.clear;
+            }
+
+            btn.onClick.RemoveAllListeners();
             btn.onClick.AddListener(() => 
             {
                 replaceFlags[index] = !replaceFlags[index];

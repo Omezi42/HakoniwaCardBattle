@@ -864,7 +864,7 @@ GameObject:
   - component: {fileID: 8446969871441481446}
   - component: {fileID: 953675513019013356}
   - component: {fileID: 3787840612948511340}
-  - component: {fileID: 1467756860127429769}
+  - component: {fileID: 6936015351353046205}
   - component: {fileID: 8401229307229123648}
   - component: {fileID: 7722392471164497539}
   - component: {fileID: 1516994455682137686}
@@ -981,7 +981,7 @@ CanvasGroup:
   m_Interactable: 1
   m_BlocksRaycasts: 1
   m_IgnoreParentGroups: 0
---- !u!114 &1467756860127429769
+--- !u!114 &6936015351353046205
 MonoBehaviour:
   m_ObjectHideFlags: 0
   m_CorrespondingSourceObject: {fileID: 0}

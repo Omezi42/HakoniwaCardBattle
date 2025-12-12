@@ -27,24 +27,22 @@ public class BuildView : MonoBehaviour, IPointerEnterHandler, IPointerExitHandle
     {
         myBuild = build;
 
-        // ★修正：建築中なら専用画像、完成したらビルド固有の画像を表示
         if (build.isUnderConstruction)
         {
             if (constructionSprite != null)
             {
                 iconImage.sprite = constructionSprite;
             }
-            iconImage.color = Color.white; // 建築中は通常色で見せる
+            iconImage.color = Color.white;
         }
         else
         {
-            // 完成後
-            if (build.data.icon != null)
+            // 完成後: data.icon -> data.cardIcon
+            if (build.data.cardIcon != null)
             {
-                iconImage.sprite = build.data.icon;
+                iconImage.sprite = build.data.cardIcon;
             }
             
-            // 行動済みならグレーにする（既存処理）
             if (build.hasActed)
             {
                 iconImage.color = Color.gray;
@@ -57,7 +55,6 @@ public class BuildView : MonoBehaviour, IPointerEnterHandler, IPointerExitHandle
 
         if (lifeText != null) lifeText.text = build.remainingTurns.ToString();
     }
-
     // --- ドラッグ処理 ---
 
     public void OnBeginDrag(PointerEventData eventData)

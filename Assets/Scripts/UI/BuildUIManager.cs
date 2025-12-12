@@ -27,7 +27,8 @@ public class BuildUIManager : MonoBehaviour
     [Header("左下：ステータスエリア")]
     public TextMeshProUGUI statusText; // 現在の建築状況やクールタイムを表示
 
-    private List<BuildData> currentBuildList;
+    // ★変更: BuildData -> CardData
+    private List<CardData> currentBuildList; 
     private int selectedIndex = -1;
     private bool isPlayerTarget; // 自分を見ているか、敵を見ているか
 
@@ -38,6 +39,7 @@ public class BuildUIManager : MonoBehaviour
             closeButton.onClick.AddListener(CloseMenu);
         }
     }
+
     public void OpenMenu(bool isPlayer)
     {
         isPlayerTarget = isPlayer;
@@ -60,19 +62,19 @@ public class BuildUIManager : MonoBehaviour
     void ClearDetail()
     {
         if (detailName != null) detailName.text = "";
-        if (detailDesc != null) detailDesc.text = ""; // "ビルドを選択してください" と入れても親切です
+        if (detailDesc != null) detailDesc.text = ""; 
         if (detailCost != null) detailCost.text = "";
         if (detailDuration != null) detailDuration.text = "";
 
         if (detailIcon != null)
         {
             detailIcon.sprite = null;
-            detailIcon.color = Color.clear; // 透明にして見えなくする
+            detailIcon.color = Color.clear; 
         }
 
         if (buildButton != null)
         {
-            buildButton.interactable = false; // ボタンは押せないように
+            buildButton.interactable = false; 
             buildButton.onClick.RemoveAllListeners();
         }
     }
@@ -87,10 +89,8 @@ public class BuildUIManager : MonoBehaviour
 
     void UpdateBuildList()
     {
-        // 既存のリストをクリア
         foreach (Transform child in listContainer) Destroy(child.gameObject);
 
-        // ★修正：リストの取得ロジックを整理
         if (isPlayerTarget)
         {
             currentBuildList = GameManager.instance.playerLoadoutBuilds;
@@ -103,11 +103,11 @@ public class BuildUIManager : MonoBehaviour
         for (int i = 0; i < currentBuildList.Count; i++)
         {
             int index = i;
-            BuildData data = currentBuildList[i];
+            CardData data = currentBuildList[i]; // ★CardData
             
             GameObject btnObj = Instantiate(buildListButtonPrefab, listContainer);
             TextMeshProUGUI btnText = btnObj.GetComponentInChildren<TextMeshProUGUI>();
-            if (btnText != null) btnText.text = data.buildName;
+            if (btnText != null) btnText.text = data.cardName; // buildName -> cardName
 
             btnObj.GetComponent<Button>().onClick.AddListener(() => OnSelectBuild(index));
         }
@@ -116,14 +116,13 @@ public class BuildUIManager : MonoBehaviour
     void OnSelectBuild(int index)
     {
         selectedIndex = index;
-        BuildData data = currentBuildList[index];
+        CardData data = currentBuildList[index]; // ★CardData
 
-        // アイコン表示などの処理（そのまま）
         if (detailIcon != null)
         {
-            if (data.icon != null)
+            if (data.cardIcon != null) // icon -> cardIcon
             {
-                detailIcon.sprite = data.icon;
+                detailIcon.sprite = data.cardIcon;
                 detailIcon.color = Color.white;
             }
             else
@@ -132,28 +131,26 @@ public class BuildUIManager : MonoBehaviour
             }
         }
 
-        // テキスト更新（そのまま）
-        if (detailName != null) detailName.text = data.buildName;
+        // 変数名の変更に対応
+        if (detailName != null) detailName.text = data.cardName; // buildName -> cardName
         if (detailDesc != null) detailDesc.text = data.description;
         if (detailCost != null) detailCost.text = "Cost: " + data.cost;
         if (detailDuration != null) detailDuration.text = "Life: " + data.duration + " turns";
 
-        // ★修正：ボタンの制御を厳格化
+        // ★修正：ボタンの制御（ロジックは以前と同じだが型がCardData）
         if (buildButton != null)
         {
-            // まずボタンのリスナーを全削除
             buildButton.onClick.RemoveAllListeners();
 
             if (isPlayerTarget)
             {
-                // 自分を見ている場合のみ、建築判定を行う
                 bool canBuild = GameManager.instance.isPlayerTurn 
                                 && GameManager.instance.playerBuildCooldown == 0
                                 && !GameManager.instance.HasActiveBuild(true)
                                 && GameManager.instance.currentMana >= data.cost;
 
-                buildButton.gameObject.SetActive(true); // ボタンを表示
-                buildButton.interactable = canBuild;    // 条件を満たせば押せる
+                buildButton.gameObject.SetActive(true); 
+                buildButton.interactable = canBuild;    
 
                 if (canBuild)
                 {
@@ -166,7 +163,6 @@ public class BuildUIManager : MonoBehaviour
             }
             else
             {
-                // 敵を見ている場合は、ボタンを非表示かつ無効にする
                 buildButton.gameObject.SetActive(false);
                 buildButton.interactable = false;
             }
@@ -175,17 +171,15 @@ public class BuildUIManager : MonoBehaviour
 
     void UpdateStatus()
     {
-        // 左下のステータス表示
         string message = "";
-
-        // 現在建築中のものがあるか？
         ActiveBuild current = GameManager.instance.GetActiveBuild(isPlayerTarget);
         int cooldown = isPlayerTarget ? GameManager.instance.playerBuildCooldown : GameManager.instance.enemyBuildCooldown;
 
         if (current != null)
         {
             string state = current.isUnderConstruction ? "建築中..." : "稼働中";
-            message = $"【現在のビルド】\n{current.data.buildName}\n状態: {state}\n残り寿命: {current.remainingTurns}";
+            // buildName -> cardName
+            message = $"【現在のビルド】\n{current.data.cardName}\n状態: {state}\n残り寿命: {current.remainingTurns}";
         }
         else
         {
@@ -198,7 +192,6 @@ public class BuildUIManager : MonoBehaviour
                 message = "【建築可能】\nビルドを選択してください";
             }
         }
-
         statusText.text = message;
     }
 }

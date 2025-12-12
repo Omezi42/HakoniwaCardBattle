@@ -18,11 +18,10 @@ public class GameManager : MonoBehaviour
     [Header("リザルト・詳細表示")]
     public GameObject resultPanel;
     public TextMeshProUGUI resultText;
-    public GameObject detailPanel;
-    public Image detailIcon;
-    public TextMeshProUGUI detailName;
-    public TextMeshProUGUI detailDesc;
-    public TextMeshProUGUI detailStats;
+
+    [Header("★新：カード拡大表示")]
+    public GameObject enlargedCardPanel; // 拡大表示の親オブジェクト
+    public CardView enlargedCardView;    // 拡大表示に使うCardViewコンポーネント
 
     [Header("ゲームデータ")]
     public int maxMana = 0;
@@ -52,8 +51,9 @@ public class GameManager : MonoBehaviour
     private AudioSource audioSource;
 
     [Header("ビルドシステム")]
-    public List<BuildData> playerLoadoutBuilds;
-    public List<BuildData> enemyLoadoutBuilds;
+    // ★変更: BuildData ではなく CardData のリストにします
+    public List<CardData> playerLoadoutBuilds;
+    public List<CardData> enemyLoadoutBuilds;
     public List<ActiveBuild> activeBuilds = new List<ActiveBuild>();
     public BuildUIManager buildUIManager;
     public int playerBuildCooldown = 0;
@@ -114,6 +114,14 @@ public class GameManager : MonoBehaviour
         currentMana = 0;
         enemyMaxMana = 0;
         enemyCurrentMana = 0;
+
+        // ★追加：拡大パネルの初期化（隠しておく）
+        if (enlargedCardPanel != null) enlargedCardPanel.SetActive(false);
+        if (enlargedCardView != null) 
+        {
+            enlargedCardView.enableHoverScale = false;  // 拡大表示自体がホバーで拡大しないように
+            enlargedCardView.enableHoverDetail = false; // 無限ループ防止
+        }
 
         UpdateManaUI();
         UpdateEnemyManaUI();
@@ -266,7 +274,8 @@ public class GameManager : MonoBehaviour
                     if (build.isUnderConstruction)
                     {
                         build.isUnderConstruction = false;
-                        Debug.Log(build.data.buildName + " 建築完了");
+                        // ★修正：build.data.buildName -> build.data.cardName
+                        Debug.Log(build.data.cardName + " 建築完了");
                     }
                     build.hasActed = false;
                 }
@@ -685,8 +694,12 @@ public class GameManager : MonoBehaviour
     void SetupDeck()
     {
         mainDeck.Clear();
-        List<string> deckIds = new List<string>();
+        playerLoadoutBuilds.Clear(); 
 
+        List<string> deckCardIds = new List<string>();
+        List<string> deckBuildIds = new List<string>(); 
+
+        // 1. PlayerDataManagerからデータ取得を試みる
         if (PlayerDataManager.instance != null)
         {
             var data = PlayerDataManager.instance.playerData;
@@ -696,34 +709,75 @@ public class GameManager : MonoBehaviour
                 {
                     data.currentDeckIndex = 0;
                 }
-                deckIds = data.decks[data.currentDeckIndex].cardIds;
+                var deck = data.decks[data.currentDeckIndex];
+                deckCardIds = deck.cardIds;
+                deckBuildIds = deck.buildIds; 
             }
         }
 
-        if (deckIds == null || deckIds.Count == 0)
+        // 2. デッキ構築
+        // ★修正：データがない場合は「テスト用ランダムデッキ」を生成する
+        if (deckCardIds == null || deckCardIds.Count == 0)
         {
-            Debug.Log("デッキデータがないため、ランダムなテストデッキを使用します。");
+            Debug.LogWarning("デッキデータが見つかりません（または直接シーンを再生しています）。テスト用ランダムデッキを生成します。");
+            
+            // Resources/CardsData フォルダから全カードを読み込む
             CardData[] allCards = Resources.LoadAll<CardData>("CardsData");
+            
             if (allCards.Length > 0)
             {
+                // 30枚ランダムに選んでデッキに入れる
                 for (int i = 0; i < 30; i++)
                 {
-                    mainDeck.Add(allCards[UnityEngine.Random.Range(0, allCards.Length)]);
+                    CardData randomCard = allCards[Random.Range(0, allCards.Length)];
+                    
+                    // ビルド以外ならメインデッキへ
+                    if (randomCard.type != CardType.BUILD)
+                    {
+                        mainDeck.Add(randomCard);
+                    }
+                    else
+                    {
+                        // ビルドならロードアウトへ（最大3つまで）
+                        if (playerLoadoutBuilds.Count < 3 && !playerLoadoutBuilds.Contains(randomCard))
+                        {
+                            playerLoadoutBuilds.Add(randomCard);
+                        }
+                    }
                 }
+            }
+            else
+            {
+                Debug.LogError("Resources/CardsData にカードデータがありません！");
             }
         }
         else
         {
-            foreach (string id in deckIds)
+            // 通常の読み込み処理（PlayerDataManagerがある場合）
+            foreach (string id in deckCardIds)
             {
                 CardData card = PlayerDataManager.instance.GetCardById(id);
-                if (card != null)
+                if (card != null && card.type != CardType.BUILD)
                 {
                     mainDeck.Add(card);
                 }
             }
         }
 
+        // 3. ビルドロードアウト構築 (正規データがある場合)
+        if (deckBuildIds != null && deckBuildIds.Count > 0)
+        {
+            foreach (string id in deckBuildIds)
+            {
+                CardData card = PlayerDataManager.instance.GetCardById(id);
+                if (card != null && card.type == CardType.BUILD)
+                {
+                    playerLoadoutBuilds.Add(card);
+                }
+            }
+        }
+
+        // シャッフル
         int n = mainDeck.Count;
         while (n > 1)
         {
@@ -734,7 +788,7 @@ public class GameManager : MonoBehaviour
             mainDeck[n] = value;
         }
 
-        Debug.Log($"デッキ構築完了！残り枚数: {mainDeck.Count}");
+        Debug.Log($"デッキ構築完了！ デッキ: {mainDeck.Count}枚, ビルド: {playerLoadoutBuilds.Count}個");
     }
 
     public void PreviewMana(int cost)
@@ -983,16 +1037,16 @@ public class GameManager : MonoBehaviour
         }
 
         if (buildIndex >= playerLoadoutBuilds.Count) return;
-        BuildData data = playerLoadoutBuilds[buildIndex];
+        CardData data = playerLoadoutBuilds[buildIndex];
 
         if (TryUseMana(data.cost))
         {
             if (activeBuilds == null) activeBuilds = new List<ActiveBuild>();
-            activeBuilds.Add(new ActiveBuild(data, true));
+            activeBuilds.Add(new ActiveBuild(data, true)); // コンストラクタもCardData対応へ
             
             playerBuildCooldown = COOLDOWN_PLAYER;
 
-            Debug.Log(data.buildName + " の建築を開始します...");
+            Debug.Log(data.cardName + " の建築を開始します..."); // buildName -> cardName
             PlaySE(seSummon);
             UpdateBuildUI();
         }
@@ -1039,7 +1093,8 @@ public class GameManager : MonoBehaviour
                 if (build.remainingTurns <= 0)
                 {
                     activeBuilds.RemoveAt(i);
-                    Debug.Log(build.data.buildName + " の効果が切れました");
+                    // ★修正：build.data.buildName -> build.data.cardName
+                    Debug.Log(build.data.cardName + " の効果が切れました");
                 }
             }
         }
@@ -1072,19 +1127,33 @@ public class GameManager : MonoBehaviour
         }
     }
 
-    public void ShowBuildDetail(BuildData data, int currentLife = -1)
+    public void ShowBuildDetail(CardData data, int currentLife = -1)
     {
-        if (detailPanel == null) return;
+        if (enlargedCardPanel == null || enlargedCardView == null || data == null) return;
 
-        detailPanel.SetActive(true);
+        enlargedCardPanel.SetActive(true);
 
-        if (data.icon != null) detailIcon.sprite = data.icon;
-
-        detailName.text = data.buildName;
-        detailDesc.text = data.description;
+        if (enlargedCardView.nameText != null) enlargedCardView.nameText.text = data.cardName; // buildName -> cardName
+        if (enlargedCardView.descText != null) enlargedCardView.descText.text = data.description;
+        if (enlargedCardView.costText != null) enlargedCardView.costText.text = data.cost.ToString();
+        
+        if (enlargedCardView.iconImage != null)
+        {
+            if (data.cardIcon != null) // icon -> cardIcon
+            {
+                enlargedCardView.iconImage.sprite = data.cardIcon;
+                enlargedCardView.iconImage.color = Color.white;
+            }
+        }
 
         int life = (currentLife != -1) ? currentLife : data.duration;
-        detailStats.text = $"COST: {data.cost} / LIFE: {life}";
+        
+        if (enlargedCardView.healthText != null) enlargedCardView.healthText.text = life.ToString();
+        if (enlargedCardView.attackText != null) enlargedCardView.attackText.text = "";
+
+        if (enlargedCardView.attackOrbImage) enlargedCardView.attackOrbImage.gameObject.SetActive(false);
+        if (enlargedCardView.healthOrbImage) enlargedCardView.healthOrbImage.gameObject.SetActive(true);
+        if (enlargedCardView.buildTypeIcon) enlargedCardView.buildTypeIcon.gameObject.SetActive(true);
     }
 
     public bool TryUseMana(int cost)
@@ -1189,14 +1258,16 @@ public class GameManager : MonoBehaviour
         return true;
     }
 
+    // ユニット・カードの詳細表示
     public void ShowUnitDetail(CardData data)
     {
-        if (detailPanel == null) return;
-        detailPanel.SetActive(true);
-        if (data.cardIcon != null) detailIcon.sprite = data.cardIcon;
-        detailName.text = data.cardName;
-        detailDesc.text = data.description;
-        detailStats.text = (data.type == CardType.UNIT) ? $"ATK: {data.attack} / HP: {data.health}" : "SPELL";
+        // 拡大パネルがない、またはデータがない場合は無視
+        if (enlargedCardPanel == null || enlargedCardView == null || data == null) return;
+
+        enlargedCardPanel.SetActive(true);
+        
+        // CardViewの機能を使ってデータをセット（これで見た目がカードそのものになる）
+        enlargedCardView.SetCard(data);
     }
 
     public void SpawnDamageText(Vector3 worldPos, int damage)
@@ -1211,9 +1282,14 @@ public class GameManager : MonoBehaviour
         obj.GetComponent<FloatingText>().Setup(damage);
     }
 
+    // 詳細を閉じる
     public void OnClickCloseDetail()
     {
-        if (detailPanel != null) detailPanel.SetActive(false);
+        // 古いパネルを閉じる（念のため）
+        // if (detailPanel != null) detailPanel.SetActive(false);
+
+        // 新しい拡大パネルを閉じる
+        if (enlargedCardPanel != null) enlargedCardPanel.SetActive(false);
     }
 
     void UpdateHandState()
@@ -1276,14 +1352,13 @@ public class GameManager : MonoBehaviour
 [System.Serializable]
 public class ActiveBuild
 {
-    public BuildData data;
+    public CardData data; // BuildData -> CardData
     public int remainingTurns;
     public bool isPlayerOwner;
     public bool isUnderConstruction;
-    
     public bool hasActed = false;
 
-    public ActiveBuild(BuildData data, bool isPlayer)
+    public ActiveBuild(CardData data, bool isPlayer)
     {
         this.data = data;
         this.remainingTurns = data.duration;

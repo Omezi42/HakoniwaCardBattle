@@ -15,30 +15,30 @@ public class DeckEditManager : MonoBehaviour
     private ScreenMode currentMode = ScreenMode.DeckSelect;
 
     [Header("共通UI References")]
-    public Transform[] deckShelfRows; // 上部の棚
-    public Transform buildShelf;      // 左のビルド棚
+    public Transform[] deckShelfRows;
+    public Transform buildShelf;      
     
     [Header("デッキ情報（共通エリア）")]
-    // ★変更：テキスト表示用変数は削除し、Input欄を兼用します
-    public TMP_InputField deckNameInput; // 名前表示＆変更欄（共通）
-    public Image deckJobIconImage;       // ジョブアイコン（共通）
-    public Sprite[] jobIcons;            // 画像リスト
+    public TMP_InputField deckNameInput;
+    public Image deckJobIconImage;
+    public Sprite[] jobIcons;
 
     // --- モード別パネル ---
     [Header("一覧モード用 (Deck Select)")]
-    public GameObject deckSelectPanelRoot;  // 下部の本パネル
-    public Transform deckNameListContainer; // 本の中のリスト親
-    public GameObject deckNameItemPrefab;   // リストアイテム
-    public Button createNewDeckButton;      // 羽ペン
-    public Button editStartButton;          // 編集開始ボタン
-    public Button backToMenuButton;         // ★追加：メニューへ戻るボタン
+    public GameObject deckSelectPanelRoot;
+    public Transform deckNameListContainer;
+    public GameObject deckNameItemPrefab;
+    public Button createNewDeckButton;
+    public Button editStartButton;
+    public Button backToMenuButton;
 
     [Header("編集モード用 (Deck Edit)")]
-    public GameObject deckEditPanelRoot;    // 下部のカード一覧パネル
+    public GameObject deckEditPanelRoot;
     public Transform cardListContent;
     public GameObject listCardPrefab;
     public GameObject deckCardPrefab;
-    public Button saveButton;               // 保存ボタン
+    public Button saveButton;
+    public Button returnButton; // ★追加：一覧へ戻るボタン（キャンセル）
 
     [Header("その他")]
     public ManaCurveGraph manaCurveGraph;
@@ -72,19 +72,25 @@ public class DeckEditManager : MonoBehaviour
 
     void Start()
     {
-        // ボタン登録
+        // フィルターボタン登録
         if (filterButton) filterButton.onClick.AddListener(() => filterPanel.SetActive(true));
         if (applyFilterButton) applyFilterButton.onClick.AddListener(() => { RefreshEditUI(); filterPanel.SetActive(false); });
         if (closeFilterButton) closeFilterButton.onClick.AddListener(() => filterPanel.SetActive(false));
         if (resetFilterButton) resetFilterButton.onClick.AddListener(ResetFilter);
 
+        // ラベルボタン一括操作
         if (jobLabelButton) jobLabelButton.onClick.AddListener(() => ToggleCategory(jobToggles));
         if (costLabelButton) costLabelButton.onClick.AddListener(() => ToggleCategory(costToggles));
         if (rarityLabelButton) rarityLabelButton.onClick.AddListener(() => ToggleCategory(rarityToggles));
         if (typeLabelButton) typeLabelButton.onClick.AddListener(() => ToggleCategory(typeToggles));
 
+        // モード遷移・保存ボタン
         if (createNewDeckButton) createNewDeckButton.onClick.AddListener(OnClickNewDeck);
         if (saveButton) saveButton.onClick.AddListener(OnClickSave);
+        
+        // ★追加：戻るボタンの登録
+        if (returnButton) returnButton.onClick.AddListener(OnClickReturn);
+
         if (editStartButton) editStartButton.onClick.AddListener(OnClickStartEdit);
         if (backToMenuButton) backToMenuButton.onClick.AddListener(OnClickBackToMenu);
 
@@ -113,7 +119,6 @@ public class DeckEditManager : MonoBehaviour
         if (deckEditPanelRoot) deckEditPanelRoot.SetActive(false);
         if (newDeckPopup) newDeckPopup.SetActive(false);
         
-        // ★修正：入力欄を表示するが、操作不可（ReadOnly）にする
         if (deckNameInput)
         {
             deckNameInput.gameObject.SetActive(true);
@@ -122,7 +127,6 @@ public class DeckEditManager : MonoBehaviour
 
         RefreshDeckNameList();
 
-        // 最後に選択していたデッキを表示
         int lastIndex = PlayerDataManager.instance.playerData.currentDeckIndex;
         var decks = PlayerDataManager.instance.playerData.decks;
         if (decks.Count > 0)
@@ -155,7 +159,6 @@ public class DeckEditManager : MonoBehaviour
         }
     }
 
-    // デッキ選択（プレビュー）
     public void SelectDeckForPreview(DeckData deck)
     {
         previewingDeck = deck;
@@ -164,17 +167,13 @@ public class DeckEditManager : MonoBehaviour
 
         RefreshDeckNameList();
 
-        // ★名前の表示更新
         if (deckNameInput != null)
         {
             deckNameInput.text = deck.deckName;
-            deckNameInput.gameObject.SetActive(true); // 念のため
+            deckNameInput.gameObject.SetActive(true);
         }
         
-        // ★アイコンの表示更新
         UpdateJobIcon(deck);
-
-        // 棚の更新
         UpdateShelfVisuals(deck.cardIds, deck.buildIds, false);
     }
 
@@ -186,6 +185,13 @@ public class DeckEditManager : MonoBehaviour
     public void OnClickBackToMenu()
     {
         SceneManager.LoadScene("MenuScene");
+    }
+
+    // ★追加：編集中に一覧へ戻る処理
+    public void OnClickReturn()
+    {
+        // 保存せずに戻るので、変更内容は破棄されます
+        ShowDeckSelectScreen();
     }
 
     public void OnClickNewDeck()
@@ -218,7 +224,6 @@ public class DeckEditManager : MonoBehaviour
         if (deckEditPanelRoot) deckEditPanelRoot.SetActive(true);
         if (newDeckPopup) newDeckPopup.SetActive(false);
 
-        // ★修正：入力欄を入力可能にする
         if (deckNameInput) 
         {
             deckNameInput.gameObject.SetActive(true);
@@ -231,7 +236,6 @@ public class DeckEditManager : MonoBehaviour
         RefreshEditUI();
     }
 
-    // ジョブアイコン更新
     void UpdateJobIcon(DeckData deck)
     {
         if (deckJobIconImage != null && jobIcons != null)
