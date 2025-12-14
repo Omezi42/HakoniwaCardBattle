@@ -12,7 +12,7 @@ MonoBehaviour:
   m_Script: {fileID: 11500000, guid: c71e7460e0e60df45809536b9f79afbc, type: 3}
   m_Name: "K03_\u7CBE\u92ED\u8B77\u885B\u5175"
   m_EditorClassIdentifier: 
-  id: K03
+  id: K003
   cardName: "\u7CBE\u92ED\u8B77\u885B\u5175"
   type: 0
   job: 1
@@ -21,6 +21,7 @@ MonoBehaviour:
   attack: 2
   health: 6
   maxInDeck: 2
+  duration: 0
   description: "\u3053\u306E\u30E6\u30CB\u30C3\u30C8\u304C\u3044\u308B\u9650\u308A\u3001\u5F8C\u308D\u306E\u5473\u65B9\u306F\u653B\u6483\u3055\u308C\u306A\u3044\u3002"
   scriptKey: TAUNT_ROW
   abilities:

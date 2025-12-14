@@ -22,6 +22,7 @@ public class UnitMover : MonoBehaviour, IBeginDragHandler, IDragHandler, IEndDra
     public int maxHealth;
     public bool hasHaste = false; 
     public bool hasQuick = false;
+    public bool hasPierce = false; // ★追加：貫通持ちかどうか
 
     private bool isAnimating = false;
     private Vector3 dragStartPos;
@@ -51,6 +52,7 @@ public class UnitMover : MonoBehaviour, IBeginDragHandler, IDragHandler, IEndDra
                 if (ability.effect == EffectType.STEALTH) { hasStealth = true; GetComponent<CanvasGroup>().alpha = 0.5f; }
                 if (ability.effect == EffectType.QUICK) hasQuick = true;
                 if (ability.effect == EffectType.HASTE) hasHaste = true;
+                if (ability.effect == EffectType.PIERCE) hasPierce = true; // ★追加
             }
         }
         
@@ -73,7 +75,7 @@ public class UnitMover : MonoBehaviour, IBeginDragHandler, IDragHandler, IEndDra
             // 敵はAI管理
             canAttack = false; canMove = false;
             canvasGroup.blocksRaycasts = true;
-            // ★追加：敵ユニットならイラストを左右反転させる
+            // 敵ユニットならイラストを左右反転させる
             if (unitView != null && unitView.iconImage != null)
             {
                 Vector3 scale = unitView.iconImage.transform.localScale;
@@ -85,26 +87,16 @@ public class UnitMover : MonoBehaviour, IBeginDragHandler, IDragHandler, IEndDra
         if (unitView != null) unitView.RefreshStatusIcons(hasTaunt, hasStealth);
     }
 
+    // ... (OnPointerEnter, OnPointerExit, OnBeginDrag, OnDrag, OnEndDrag, OnDrop はそのまま) ...
     public void OnPointerEnter(PointerEventData eventData)
     {
         if (eventData.pointerDrag != null) return;
-        
-        // ★修正：GameManagerが存在する時だけ詳細を表示する
-        if (sourceData != null && GameManager.instance != null)
-        {
-            GameManager.instance.ShowUnitDetail(sourceData);
-        }
+        if (sourceData != null && GameManager.instance != null) GameManager.instance.ShowUnitDetail(sourceData);
     }
-
     public void OnPointerExit(PointerEventData eventData)
     {
-        // ★修正：GameManagerが存在する時だけ閉じる処理を呼ぶ
-        if (GameManager.instance != null)
-        {
-            GameManager.instance.OnClickCloseDetail();
-        }
+        if (GameManager.instance != null) GameManager.instance.OnClickCloseDetail();
     }
-    
     public void OnBeginDrag(PointerEventData eventData)
     {
         if (isAnimating) return;
@@ -119,16 +111,31 @@ public class UnitMover : MonoBehaviour, IBeginDragHandler, IDragHandler, IEndDra
         GameManager.instance.ShowArrow(dragStartPos);
         GameManager.instance.SetArrowColor(Color.gray);
     }
-
     public void OnDrag(PointerEventData eventData)
     {
         if (!isPlayerUnit) return;
         if (!canAttack && !canMove) return;
-
         GameManager.instance.UpdateArrow(dragStartPos, eventData.position);
         UpdateArrowColor(eventData);
     }
-
+    public void OnEndDrag(PointerEventData eventData)
+    {
+        GameManager.instance.HideArrow();
+        if (canvasGroup != null) canvasGroup.blocksRaycasts = true;
+        transform.localPosition = Vector3.zero;
+    }
+    public void OnDrop(PointerEventData eventData)
+    {
+        UnitMover attacker = eventData.pointerDrag.GetComponent<UnitMover>();
+        if (attacker != null && attacker.canAttack)
+        {
+            if (this.isPlayerUnit != attacker.isPlayerUnit)
+            {
+                if (GameManager.instance.CanAttackUnit(attacker, this)) attacker.AttackUnit(this);
+            }
+            return;
+        }
+    }
     void UpdateArrowColor(PointerEventData eventData)
     {
         GameObject hoverObj = eventData.pointerCurrentRaycast.gameObject;
@@ -154,7 +161,6 @@ public class UnitMover : MonoBehaviour, IBeginDragHandler, IDragHandler, IEndDra
                 }
                 else if (targetLeader != null) 
                 {
-                     // 敵リーダーチェック
                      if (targetLeader.transform.parent.name == "EnemyBoard" || targetLeader.name == "EnemyInfo")
                      {
                          if (GameManager.instance.CanAttackLeader(this))
@@ -189,26 +195,6 @@ public class UnitMover : MonoBehaviour, IBeginDragHandler, IDragHandler, IEndDra
         }
         GameManager.instance.SetArrowColor(targetColor);
         GameManager.instance.SetArrowLabel(labelText, showLabel);
-    }
-
-    public void OnEndDrag(PointerEventData eventData)
-    {
-        GameManager.instance.HideArrow();
-        if (canvasGroup != null) canvasGroup.blocksRaycasts = true;
-        transform.localPosition = Vector3.zero;
-    }
-
-    public void OnDrop(PointerEventData eventData)
-    {
-        UnitMover attacker = eventData.pointerDrag.GetComponent<UnitMover>();
-        if (attacker != null && attacker.canAttack)
-        {
-            if (this.isPlayerUnit != attacker.isPlayerUnit)
-            {
-                if (GameManager.instance.CanAttackUnit(attacker, this)) attacker.AttackUnit(this);
-            }
-            return;
-        }
     }
 
     public void Attack(Leader target, bool force = false)
@@ -252,7 +238,7 @@ public class UnitMover : MonoBehaviour, IBeginDragHandler, IDragHandler, IEndDra
 
             if (mySlot != null && enemySlot != null)
             {
-                // ★正面ボーナス（同じレーンなら）
+                // 正面ボーナス（同じレーンなら）
                 if (mySlot.x == enemySlot.x)
                 {
                     finalDamage += 1;
@@ -261,10 +247,52 @@ public class UnitMover : MonoBehaviour, IBeginDragHandler, IDragHandler, IEndDra
                 }
             }
 
+            // 本命の攻撃
             enemy.TakeDamage(finalDamage);
+
+            // ★追加：貫通ロジック (Pierce)
+            if (hasPierce)
+            {
+                // 攻撃対象の後ろにいるユニットを探す
+                UnitMover backUnit = GetBackUnit(enemy);
+                if (backUnit != null)
+                {
+                    if (BattleLogManager.instance != null)
+                        BattleLogManager.instance.AddLog("貫通ダメージ！", isPlayerUnit);
+                    
+                    // 後ろの敵にも自分の攻撃力分のダメージ（正面ボーナスは乗せない）
+                    backUnit.TakeDamage(this.attackPower);
+                }
+            }
+
+            // 反撃（貫通して後ろに当たっても、反撃を受けるのは目の前の敵からのみ）
             this.TakeDamage(enemyDamage);
             ConsumeAttack();
         }));
+    }
+
+    // ★追加：対象のユニットの「後ろ」にいるユニットを探すヘルパー関数
+    UnitMover GetBackUnit(UnitMover frontUnit)
+    {
+        if (frontUnit.transform.parent == null) return null;
+        SlotInfo frontSlot = frontUnit.transform.parent.GetComponent<SlotInfo>();
+        
+        // 敵が前列(y=0)にいる場合のみ、後列(y=1)が存在しうる
+        if (frontSlot == null || frontSlot.y != 0) return null;
+
+        Transform board = frontUnit.transform.parent.parent; // Slot -> Board
+        if (board == null) return null;
+
+        foreach (Transform slot in board)
+        {
+            SlotInfo info = slot.GetComponent<SlotInfo>();
+            // 同じX座標で、かつ後列(y=1)のスロットを探す
+            if (info != null && info.x == frontSlot.x && info.y == 1 && slot.childCount > 0)
+            {
+                return slot.GetChild(0).GetComponent<UnitMover>();
+            }
+        }
+        return null;
     }
 
     public void TakeDamage(int damage)
@@ -272,7 +300,17 @@ public class UnitMover : MonoBehaviour, IBeginDragHandler, IDragHandler, IEndDra
         GameManager.instance.SpawnDamageText(transform.position, damage);
         health -= damage;
         if (unitView != null) unitView.RefreshDisplay();
-        if (health <= 0) Destroy(gameObject);
+        
+        if (health <= 0)
+        {
+            // ★追加：死亡時トリガー (Deathrattle)
+            if (AbilityManager.instance != null && sourceData != null)
+            {
+                AbilityManager.instance.ProcessAbilities(sourceData, EffectTrigger.ON_DEATH, this);
+            }
+            Destroy(gameObject);
+        }
+        
         if (damage > 0) GameManager.instance.PlaySE(GameManager.instance.seDamage);
     }
 
@@ -312,7 +350,6 @@ public class UnitMover : MonoBehaviour, IBeginDragHandler, IDragHandler, IEndDra
             transform.localPosition = Vector3.zero;
         }
         
-        // Consumeはコールバック内で呼ばれるのでここでは呼ばない
         isAnimating = false;
     }
 

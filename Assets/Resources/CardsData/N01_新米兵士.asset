@@ -12,15 +12,16 @@ MonoBehaviour:
   m_Script: {fileID: 11500000, guid: c71e7460e0e60df45809536b9f79afbc, type: 3}
   m_Name: "N01_\u65B0\u7C73\u5175\u58EB"
   m_EditorClassIdentifier: 
-  id: N01
+  id: N001
   cardName: "\u65B0\u7C73\u5175\u58EB"
   type: 0
   job: 0
   rarity: 0
   cost: 1
-  attack: 1
+  attack: 2
   health: 2
   maxInDeck: 2
+  duration: 0
   description: "\u80FD\u529B\u3092\u6301\u305F\u306A\u3044\u3001\u99C6\u3051\u51FA\u3057\u306E\u5175\u58EB\u3002"
   scriptKey: VANILLA
   abilities: []

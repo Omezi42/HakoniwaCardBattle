@@ -12,7 +12,7 @@ MonoBehaviour:
   m_Script: {fileID: 11500000, guid: c71e7460e0e60df45809536b9f79afbc, type: 3}
   m_Name: "K02_\u7A81\u6483\u69CD\u5175"
   m_EditorClassIdentifier: 
-  id: K02
+  id: K002
   cardName: "\u7A81\u6483\u69CD\u5175"
   type: 0
   job: 1
@@ -21,6 +21,7 @@ MonoBehaviour:
   attack: 3
   health: 3
   maxInDeck: 2
+  duration: 0
   description: "\u3010\u53EC\u559A\u6642\u3011\u6B63\u9762\u306B\u6575\u304C\u3044\u308B\u5834\u5408\u3001\u305D\u306E\u6575\u306B1\u30C0\u30E1\u30FC\u30B8\u3002"
   scriptKey: DMG_FRONT_1
   abilities:

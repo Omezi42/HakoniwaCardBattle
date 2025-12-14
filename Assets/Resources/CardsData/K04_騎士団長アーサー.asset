@@ -12,7 +12,7 @@ MonoBehaviour:
   m_Script: {fileID: 11500000, guid: c71e7460e0e60df45809536b9f79afbc, type: 3}
   m_Name: "K04_\u9A0E\u58EB\u56E3\u9577\u30A2\u30FC\u30B5\u30FC"
   m_EditorClassIdentifier: 
-  id: K04
+  id: K004
   cardName: "\u9A0E\u58EB\u56E3\u9577\u30A2\u30FC\u30B5\u30FC"
   type: 0
   job: 1
@@ -21,6 +21,7 @@ MonoBehaviour:
   attack: 5
   health: 5
   maxInDeck: 1
+  duration: 0
   description: "\u3010\u53EC\u559A\u6642\u3011\u5473\u65B9\u306E\u5834\u306E\u30E6\u30CB\u30C3\u30C8\u5168\u3066\u306E\u653B\u6483\u529B\u3068\u4F53\u529B\u3092+1\u3059\u308B\u3002"
   scriptKey: BUFF_ALL_1_1
   abilities:

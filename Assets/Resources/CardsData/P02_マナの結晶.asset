@@ -12,7 +12,7 @@ MonoBehaviour:
   m_Script: {fileID: 11500000, guid: c71e7460e0e60df45809536b9f79afbc, type: 3}
   m_Name: "P02_\u30DE\u30CA\u306E\u7D50\u6676"
   m_EditorClassIdentifier: 
-  id: P02
+  id: P002
   cardName: "\u30DE\u30CA\u306E\u7D50\u6676"
   type: 1
   job: 3
@@ -21,6 +21,7 @@ MonoBehaviour:
   attack: 0
   health: 0
   maxInDeck: 2
+  duration: 0
   description: "\u81EA\u5206\u306E\u6700\u5927\u30DE\u30CA\u30921\u5897\u3084\u3059\u3002\uFF08\u7A7A\u306E\u30DE\u30CA\u3068\u3057\u3066\u8FFD\u52A0\uFF09"
   scriptKey: RAMP_MANA_1
   abilities:

@@ -1,38 +1,43 @@
 using UnityEngine;
-using UnityEditor; // ƒGƒfƒBƒ^Šg’£‹@”\‚ğg‚¤
-using System.IO;   // ƒtƒ@ƒCƒ‹“Ç‚İ‘‚«—p
+using UnityEditor;
+using System.IO;
+using System.Collections.Generic;
 
-// ‚±‚ÌƒXƒNƒŠƒvƒg‚ÍƒQ[ƒ€’†‚É‚Í“®‚©‚¸AƒGƒfƒBƒ^ã‚Å‚Ì‚İ“®‚«‚Ü‚·
 public class CardImporter : MonoBehaviour
 {
-    // ƒƒjƒ…[ƒo[‚Éƒ{ƒ^ƒ“‚ğ’Ç‰Á‚·‚é–‚–@‚Ìô•¶
-    [MenuItem("Hakoniwa/Import Cards from JSON")]
+    [MenuItem("Hakoniwa/Import Cards from JSON (v2)")]
     public static void ImportJsonData()
     {
-        // 1. JSONƒtƒ@ƒCƒ‹‚ğ“Ç‚İ‚Ş
-        // ResourcesƒtƒHƒ‹ƒ_“à‚Ì cards.json ‚ğ’T‚·
         string path = Application.dataPath + "/Resources/cards.json";
         if (!File.Exists(path))
         {
-            Debug.LogError("ƒtƒ@ƒCƒ‹‚ªŒ©‚Â‚©‚è‚Ü‚¹‚ñ: " + path);
+            Debug.LogError("JSONãƒ•ã‚¡ã‚¤ãƒ«ãŒè¦‹ã¤ã‹ã‚Šã¾ã›ã‚“: " + path);
             return;
         }
         string jsonContent = File.ReadAllText(path);
 
-        // 2. JSON‚ğ‰ğÍ‚·‚é
+        // é…åˆ—ã‚’ãƒ©ãƒƒãƒ—ã—ã¦èª­ã¿è¾¼ã‚€
         CardList dataList = JsonUtility.FromJson<CardList>(jsonContent);
 
-        // 3. ƒf[ƒ^‚ğ1‚Â‚¸‚ÂScriptableObject‚É•ÏŠ·‚µ‚Ä•Û‘¶
+        if (dataList == null || dataList.cards == null)
+        {
+            Debug.LogError("JSONã®è§£æã«å¤±æ•—ã—ã¾ã—ãŸã€‚ãƒ•ã‚©ãƒ¼ãƒãƒƒãƒˆã‚’ç¢ºèªã—ã¦ãã ã•ã„ã€‚");
+            return;
+        }
+
+        // ä¿å­˜å…ˆãƒ•ã‚©ãƒ«ãƒ€ç¢ºèª
+        string folderPath = "Assets/Resources/CardsData";
+        if (!Directory.Exists(folderPath)) Directory.CreateDirectory(folderPath);
+
         foreach (var raw in dataList.cards)
         {
-            // V‚µ‚¢ƒJ[ƒhƒf[ƒ^‚ğì¬
             CardData card = ScriptableObject.CreateInstance<CardData>();
 
-            // ’†g‚ğƒRƒs[
+            // åŸºæœ¬ãƒ‡ãƒ¼ã‚¿
             card.id = raw.id;
-            card.cardName = raw.name; // JSON‚Ì"name"‚ğC#‚Ì"cardName"‚Ö
-
-            // •¶š—ñ(String)‚ğEnum‚É•ÏŠ·
+            card.cardName = raw.name;
+            
+            // Enumå¤‰æ›ï¼ˆå¤±æ•—æ™‚ã¯ãƒ‡ãƒ•ã‚©ãƒ«ãƒˆå€¤ï¼‰
             System.Enum.TryParse(raw.type, out card.type);
             System.Enum.TryParse(raw.job, out card.job);
             System.Enum.TryParse(raw.rarity, out card.rarity);
@@ -40,21 +45,37 @@ public class CardImporter : MonoBehaviour
             card.cost = raw.cost;
             card.attack = raw.attack;
             card.health = raw.health;
+            card.maxInDeck = raw.maxInDeck;
+            card.duration = raw.duration; // â˜…è¿½åŠ 
             card.description = raw.description;
             card.scriptKey = raw.scriptKey;
-            card.maxInDeck = raw.maxInDeck;
 
-            // ƒtƒ@ƒCƒ‹‚Æ‚µ‚Ä•Û‘¶ (CardsDataƒtƒHƒ‹ƒ_‚Ö)
-            string savePath = "Assets/CardsData/" + card.id + "_" + card.cardName + ".asset";
+            // â˜…è¿½åŠ ï¼šã‚¢ãƒ“ãƒªãƒ†ã‚£ãƒªã‚¹ãƒˆã®å¤‰æ›
+            card.abilities = new List<CardAbility>();
+            if (raw.abilities != null)
+            {
+                foreach (var rawAbi in raw.abilities)
+                {
+                    CardAbility abi = new CardAbility();
+                    System.Enum.TryParse(rawAbi.trigger, out abi.trigger);
+                    System.Enum.TryParse(rawAbi.target, out abi.target);
+                    System.Enum.TryParse(rawAbi.effect, out abi.effect);
+                    abi.value = rawAbi.value;
+                    card.abilities.Add(abi);
+                }
+            }
+
+            // ä¿å­˜
+            string savePath = $"{folderPath}/{card.id}.asset";
             AssetDatabase.CreateAsset(card, savePath);
         }
 
-        AssetDatabase.SaveAssets(); // •Û‘¶‚ğŠm’è
-        AssetDatabase.Refresh();    // ƒGƒfƒBƒ^‚ğXV
-        Debug.Log("Š®—¹IƒJ[ƒhƒf[ƒ^‚Ìì¬‚É¬Œ÷‚µ‚Ü‚µ‚½I");
+        AssetDatabase.SaveAssets();
+        AssetDatabase.Refresh();
+        Debug.Log($"å®Œäº†ï¼ {dataList.cards.Length} æšã®ã‚«ãƒ¼ãƒ‰ãƒ‡ãƒ¼ã‚¿ã‚’ã‚¤ãƒ³ãƒãƒ¼ãƒˆã—ã¾ã—ãŸã€‚");
     }
 
-    // JSON‚ğó‚¯æ‚é‚½‚ß‚Ì“ü‚ê•¨ƒNƒ‰ƒX
+    // --- JSONå—ã‘çš¿ç”¨ã‚¯ãƒ©ã‚¹ ---
     [System.Serializable]
     private class CardList
     {
@@ -66,14 +87,25 @@ public class CardImporter : MonoBehaviour
     {
         public string id;
         public string name;
-        public string type;
-        public string job;
-        public string rarity;
+        public string type;   // "UNIT", "SPELL", "BUILD"
+        public string job;    // "NEUTRAL", "KNIGHT"...
+        public string rarity; // "COMMON"...
         public int cost;
         public int attack;
         public int health;
+        public int duration;  // â˜…è¿½åŠ 
+        public int maxInDeck;
         public string description;
         public string scriptKey;
-        public int maxInDeck;
+        public RawAbility[] abilities; // â˜…è¿½åŠ 
+    }
+
+    [System.Serializable]
+    private class RawAbility
+    {
+        public string trigger; // "ON_SUMMON"...
+        public string target;  // "FRONT_ENEMY"...
+        public string effect;  // "DAMAGE"...
+        public int value;
     }
 }

@@ -12,7 +12,7 @@ MonoBehaviour:
   m_Script: {fileID: 11500000, guid: c71e7460e0e60df45809536b9f79afbc, type: 3}
   m_Name: "P04_\u8056\u5973\u30BB\u30EC\u30B9"
   m_EditorClassIdentifier: 
-  id: P04
+  id: P004
   cardName: "\u8056\u5973\u30BB\u30EC\u30B9"
   type: 0
   job: 3
@@ -21,6 +21,7 @@ MonoBehaviour:
   attack: 6
   health: 8
   maxInDeck: 1
+  duration: 0
   description: "\u3010\u30BF\u30FC\u30F3\u7D42\u4E86\u6642\u3011\u81EA\u5206\u30EA\u30FC\u30C0\u30FC\u306E\u4F53\u529B\u30923\u56DE\u5FA9\u3059\u308B\u3002"
   scriptKey: HEAL_LEADER_TURN_3
   abilities:

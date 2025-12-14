@@ -14,7 +14,8 @@ public enum EffectTrigger
     ON_TURN_END,    // ターン終了時
     ON_ATTACK,      // 攻撃時
     SPELL_USE,      // スペルとして使用した時
-    PASSIVE         // 常在効果（守護など）
+    PASSIVE,        // 常在効果（守護など）
+    ON_DEATH        // ★追加：死亡時（ラストワード）
 }
 
 // 2. ターゲット（対象）
@@ -48,13 +49,14 @@ public enum EffectType
     STEALTH,
     QUICK,          // 疾風 (移動と攻撃が両方できる)
     DRAW_CARD,
-    HASTE,          // ★追加：速攻 (召喚酔いなし)
-    FORCE_MOVE,     // ★追加：強制移動 (煙玉など)
-    RETURN_TO_HAND, // ★追加：バウンス (念のため)
+    HASTE,          // 速攻 (召喚酔いなし)
+    FORCE_MOVE,     // 強制移動 (煙玉など)
+    RETURN_TO_HAND, // バウンス
+    PIERCE          // ★追加：貫通（前列攻撃時、後列にもダメージ）
 }
 
 // これらをまとめた「能力データ」クラス
-[System.Serializable] // これを書くとInspectorで編集できる！
+[System.Serializable] 
 public class CardAbility
 {
     public EffectTrigger trigger; // いつ？
@@ -79,7 +81,6 @@ public class CardData : ScriptableObject
     public int health;
     public int maxInDeck;
 
-    // ★追加：ビルド用のパラメータ
     [Tooltip("ビルドの持続ターン数")]
     public int duration; 
 

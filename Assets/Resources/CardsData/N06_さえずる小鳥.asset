@@ -12,7 +12,7 @@ MonoBehaviour:
   m_Script: {fileID: 11500000, guid: c71e7460e0e60df45809536b9f79afbc, type: 3}
   m_Name: "N06_\u3055\u3048\u305A\u308B\u5C0F\u9CE5"
   m_EditorClassIdentifier: 
-  id: N06
+  id: N006
   cardName: "\u3055\u3048\u305A\u308B\u5C0F\u9CE5"
   type: 0
   job: 0
@@ -21,6 +21,7 @@ MonoBehaviour:
   attack: 1
   health: 1
   maxInDeck: 99
+  duration: 0
   description: "\u5C0F\u9CE5\u306E\u6B4C\u304C\u4E16\u754C\u3092\u7167\u3089\u3059\u3002"
   scriptKey: VANILLA
   abilities: []

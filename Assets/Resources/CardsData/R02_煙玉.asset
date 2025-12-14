@@ -12,7 +12,7 @@ MonoBehaviour:
   m_Script: {fileID: 11500000, guid: c71e7460e0e60df45809536b9f79afbc, type: 3}
   m_Name: "R02_\u7159\u7389"
   m_EditorClassIdentifier: 
-  id: R02
+  id: R002
   cardName: "\u7159\u7389"
   type: 1
   job: 4
@@ -21,6 +21,7 @@ MonoBehaviour:
   attack: 0
   health: 0
   maxInDeck: 2
+  duration: 0
   description: "\u5473\u65B9\u30E6\u30CB\u30C3\u30C81\u4F53\u3092\u3001\u7A7A\u3044\u3066\u3044\u308B\u30DE\u30B9\u3078\u79FB\u52D5\u3055\u305B\u308B\u3002"
   scriptKey: MOVE_ALLY
   abilities:

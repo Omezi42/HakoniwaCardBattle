@@ -12,7 +12,7 @@ MonoBehaviour:
   m_Script: {fileID: 11500000, guid: c71e7460e0e60df45809536b9f79afbc, type: 3}
   m_Name: "R04_\u5F71\u306E\u6697\u6BBA\u8005"
   m_EditorClassIdentifier: 
-  id: R04
+  id: R004
   cardName: "\u5F71\u306E\u6697\u6BBA\u8005"
   type: 0
   job: 4
@@ -21,6 +21,7 @@ MonoBehaviour:
   attack: 5
   health: 3
   maxInDeck: 1
+  duration: 0
   description: "\u3010\u6F5C\u4F0F\u3011\u6B21\u306E\u81EA\u5206\u306E\u30BF\u30FC\u30F3\u958B\u59CB\u6642\u307E\u3067\u3001\u76F8\u624B\u304B\u3089\u653B\u6483\u3084\u52B9\u679C\u306E\u5BFE\u8C61\u306B\u3055\u308C\u306A\u3044\u3002"
   scriptKey: STEALTH
   abilities:

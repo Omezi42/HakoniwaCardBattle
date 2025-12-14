@@ -12,7 +12,7 @@ MonoBehaviour:
   m_Script: {fileID: 11500000, guid: c71e7460e0e60df45809536b9f79afbc, type: 3}
   m_Name: "R03_\u30DD\u30A4\u30BA\u30F3\u30C0\u30AC\u30FC"
   m_EditorClassIdentifier: 
-  id: R03
+  id: R003
   cardName: "\u30DD\u30A4\u30BA\u30F3\u30C0\u30AC\u30FC"
   type: 1
   job: 4
@@ -21,6 +21,7 @@ MonoBehaviour:
   attack: 0
   health: 0
   maxInDeck: 2
+  duration: 0
   description: "\u30C0\u30E1\u30FC\u30B8\u3092\u53D7\u3051\u3066\u3044\u306A\u3044\u6575\u30E6\u30CB\u30C3\u30C81\u4F53\u3092\u7834\u58CA\u3059\u308B\u3002"
   scriptKey: KILL_UNDAMAGED
   abilities:
