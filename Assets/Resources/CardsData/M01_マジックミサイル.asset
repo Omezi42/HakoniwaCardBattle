@@ -22,7 +22,7 @@ MonoBehaviour:
   health: 0
   maxInDeck: 2
   duration: 0
-  description: "\u30E9\u30F3\u30C0\u30E0\u306A\u6575\u306E\u30E6\u30CB\u30C3\u30C81\u4F53\u306B2\u30C0\u30E1\u30FC\u30B8\u3092\u4E0E\u3048\u308B\u3002"
+  description: "\u30E9\u30F3\u30C0\u30E0\u306A\u65751\u4F53\u306B2\u30C0\u30E1\u30FC\u30B8\u3092\u4E0E\u3048\u308B\u3002"
   scriptKey: DMG_RND_UNIT_2
   abilities:
   - trigger: 3

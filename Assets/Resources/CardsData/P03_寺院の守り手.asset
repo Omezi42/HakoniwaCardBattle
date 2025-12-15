@@ -22,7 +22,7 @@ MonoBehaviour:
   health: 7
   maxInDeck: 2
   duration: 0
-  description: "\u653B\u6483\u529B\u306F\u4F4E\u3044\u304C\u3001\u975E\u5E38\u306B\u9AD8\u3044\u4F53\u529B\u3092\u6301\u3064\u3002"
+  description: 
   scriptKey: VANILLA
   abilities: []
   cardIcon: {fileID: -924462099, guid: 65f5871a33d0f60459db6e15f57ee227, type: 3}

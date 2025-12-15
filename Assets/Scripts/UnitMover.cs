@@ -22,10 +22,25 @@ public class UnitMover : MonoBehaviour, IBeginDragHandler, IDragHandler, IEndDra
     public int maxHealth;
     public bool hasHaste = false; 
     public bool hasQuick = false;
-    public bool hasPierce = false; // ★追加：貫通持ちかどうか
+    public bool hasPierce = false; 
 
     private bool isAnimating = false;
     private Vector3 dragStartPos;
+
+    // ★追加：守護が発動しているか判定するプロパティ
+    // 「守護持ち」かつ「前列(y=0)にいる」場合のみ true
+    public bool IsTauntActive
+    {
+        get
+        {
+            if (!hasTaunt) return false; // そもそも守護を持っていない
+            if (transform.parent == null) return false;
+            
+            SlotInfo slot = transform.parent.GetComponent<SlotInfo>();
+            // SlotInfoがあり、かつ y=0 (前衛) の時だけ発動
+            return slot != null && slot.y == 0;
+        }
+    }
 
     void Awake()
     {
@@ -52,7 +67,7 @@ public class UnitMover : MonoBehaviour, IBeginDragHandler, IDragHandler, IEndDra
                 if (ability.effect == EffectType.STEALTH) { hasStealth = true; GetComponent<CanvasGroup>().alpha = 0.5f; }
                 if (ability.effect == EffectType.QUICK) hasQuick = true;
                 if (ability.effect == EffectType.HASTE) hasHaste = true;
-                if (ability.effect == EffectType.PIERCE) hasPierce = true; // ★追加
+                if (ability.effect == EffectType.PIERCE) hasPierce = true; 
             }
         }
         
@@ -79,7 +94,7 @@ public class UnitMover : MonoBehaviour, IBeginDragHandler, IDragHandler, IEndDra
             if (unitView != null && unitView.iconImage != null)
             {
                 Vector3 scale = unitView.iconImage.transform.localScale;
-                scale.x = -Mathf.Abs(scale.x); // Xをマイナスにして反転
+                scale.x = -Mathf.Abs(scale.x); 
                 unitView.iconImage.transform.localScale = scale;
             }
         }
@@ -87,7 +102,7 @@ public class UnitMover : MonoBehaviour, IBeginDragHandler, IDragHandler, IEndDra
         if (unitView != null) unitView.RefreshStatusIcons(hasTaunt, hasStealth);
     }
 
-    // ... (OnPointerEnter, OnPointerExit, OnBeginDrag, OnDrag, OnEndDrag, OnDrop はそのまま) ...
+    // ... (以下のメソッドは変更なし) ...
     public void OnPointerEnter(PointerEventData eventData)
     {
         if (eventData.pointerDrag != null) return;
@@ -238,7 +253,7 @@ public class UnitMover : MonoBehaviour, IBeginDragHandler, IDragHandler, IEndDra
 
             if (mySlot != null && enemySlot != null)
             {
-                // 正面ボーナス（同じレーンなら）
+                // 正面ボーナス
                 if (mySlot.x == enemySlot.x)
                 {
                     finalDamage += 1;
@@ -247,46 +262,37 @@ public class UnitMover : MonoBehaviour, IBeginDragHandler, IDragHandler, IEndDra
                 }
             }
 
-            // 本命の攻撃
             enemy.TakeDamage(finalDamage);
 
-            // ★追加：貫通ロジック (Pierce)
             if (hasPierce)
             {
-                // 攻撃対象の後ろにいるユニットを探す
                 UnitMover backUnit = GetBackUnit(enemy);
                 if (backUnit != null)
                 {
                     if (BattleLogManager.instance != null)
                         BattleLogManager.instance.AddLog("貫通ダメージ！", isPlayerUnit);
-                    
-                    // 後ろの敵にも自分の攻撃力分のダメージ（正面ボーナスは乗せない）
                     backUnit.TakeDamage(this.attackPower);
                 }
             }
 
-            // 反撃（貫通して後ろに当たっても、反撃を受けるのは目の前の敵からのみ）
             this.TakeDamage(enemyDamage);
             ConsumeAttack();
         }));
     }
 
-    // ★追加：対象のユニットの「後ろ」にいるユニットを探すヘルパー関数
     UnitMover GetBackUnit(UnitMover frontUnit)
     {
         if (frontUnit.transform.parent == null) return null;
         SlotInfo frontSlot = frontUnit.transform.parent.GetComponent<SlotInfo>();
         
-        // 敵が前列(y=0)にいる場合のみ、後列(y=1)が存在しうる
         if (frontSlot == null || frontSlot.y != 0) return null;
 
-        Transform board = frontUnit.transform.parent.parent; // Slot -> Board
+        Transform board = frontUnit.transform.parent.parent; 
         if (board == null) return null;
 
         foreach (Transform slot in board)
         {
             SlotInfo info = slot.GetComponent<SlotInfo>();
-            // 同じX座標で、かつ後列(y=1)のスロットを探す
             if (info != null && info.x == frontSlot.x && info.y == 1 && slot.childCount > 0)
             {
                 return slot.GetChild(0).GetComponent<UnitMover>();
@@ -303,7 +309,6 @@ public class UnitMover : MonoBehaviour, IBeginDragHandler, IDragHandler, IEndDra
         
         if (health <= 0)
         {
-            // ★追加：死亡時トリガー (Deathrattle)
             if (AbilityManager.instance != null && sourceData != null)
             {
                 AbilityManager.instance.ProcessAbilities(sourceData, EffectTrigger.ON_DEATH, this);
@@ -320,7 +325,6 @@ public class UnitMover : MonoBehaviour, IBeginDragHandler, IDragHandler, IEndDra
         transform.SetParent(transform.root);
         Vector3 startPos = transform.position;
         Vector3 targetPos = target.position;
-        // 手前で止める
         Vector3 attackEndPos = Vector3.Lerp(startPos, targetPos, 0.7f);
 
         float duration = 0.15f;

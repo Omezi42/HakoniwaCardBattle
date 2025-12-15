@@ -22,7 +22,7 @@ MonoBehaviour:
   health: 0
   maxInDeck: 2
   duration: 0
-  description: "\u30C0\u30E1\u30FC\u30B8\u3092\u53D7\u3051\u3066\u3044\u306A\u3044\u6575\u30E6\u30CB\u30C3\u30C81\u4F53\u3092\u7834\u58CA\u3059\u308B\u3002"
+  description: "\u7121\u50B7\u306E\u6575\u3092\u7834\u58CA\u3059\u308B\u3002"
   scriptKey: KILL_UNDAMAGED
   abilities:
   - trigger: 3

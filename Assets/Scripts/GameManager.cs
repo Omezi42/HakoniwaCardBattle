@@ -1209,10 +1209,35 @@ public class GameManager : MonoBehaviour
         if (simpleTooltip != null) simpleTooltip.Hide();
     }
 
+    bool ExistsActiveTaunt(Transform board)
+    {
+        if (board == null) return false;
+        foreach(Transform slot in board)
+        {
+            if (slot.childCount > 0)
+            {
+                UnitMover unit = slot.GetChild(0).GetComponent<UnitMover>();
+                // UnitMoverに追加したプロパティを使う
+                if (unit != null && unit.IsTauntActive)
+                {
+                    return true;
+                }
+            }
+        }
+        return false;
+    }
+
     // ユニットへの攻撃可否（ガード判定）
     public bool CanAttackUnit(UnitMover attacker, UnitMover target)
     {
         if (target.hasStealth) return false;
+        Transform targetBoard = target.transform.parent.parent; // Slot -> Board
+        // 2. ★修正：守護チェック（守護発動中の敵がいるなら、守護持ち以外は攻撃不可）
+        if (ExistsActiveTaunt(targetBoard))
+        {
+            // ターゲット自身が守護発動中でなければ攻撃できない
+            if (!target.IsTauntActive) return false;
+        }
 
         SlotInfo targetSlot = target.transform.parent.GetComponent<SlotInfo>();
         if (targetSlot == null) return true;
@@ -1241,6 +1266,11 @@ public class GameManager : MonoBehaviour
     {
         Transform targetBoard = attacker.isPlayerUnit ? enemyBoard : GameObject.Find("PlayerBoard").transform;
         if (targetBoard == null) return true;
+
+        if (ExistsActiveTaunt(targetBoard))
+        {
+            return false;
+        }
 
         bool[] isLaneBlocked = new bool[3]; // 横3列
         foreach (Transform slot in targetBoard)

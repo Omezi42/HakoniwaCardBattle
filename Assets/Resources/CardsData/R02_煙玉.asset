@@ -22,7 +22,7 @@ MonoBehaviour:
   health: 0
   maxInDeck: 2
   duration: 0
-  description: "\u5473\u65B9\u30E6\u30CB\u30C3\u30C81\u4F53\u3092\u3001\u7A7A\u3044\u3066\u3044\u308B\u30DE\u30B9\u3078\u79FB\u52D5\u3055\u305B\u308B\u3002"
+  description: "\u5473\u65B9\u5168\u4F53\u3092\u624B\u672D\u306B\u623B\u3059\u3002"
   scriptKey: MOVE_ALLY
   abilities:
   - trigger: 3

@@ -22,11 +22,11 @@ MonoBehaviour:
   health: 6
   maxInDeck: 2
   duration: 0
-  description: "\u3053\u306E\u30E6\u30CB\u30C3\u30C8\u304C\u3044\u308B\u9650\u308A\u3001\u5F8C\u308D\u306E\u5473\u65B9\u306F\u653B\u6483\u3055\u308C\u306A\u3044\u3002"
+  description: "\u5B88\u8B77"
   scriptKey: TAUNT_ROW
   abilities:
   - trigger: 4
     target: 1
-    effect: 5
+    effect: 6
     value: 0
   cardIcon: {fileID: -902827476, guid: 65f5871a33d0f60459db6e15f57ee227, type: 3}

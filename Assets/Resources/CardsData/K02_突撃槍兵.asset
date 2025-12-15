@@ -16,17 +16,21 @@ MonoBehaviour:
   cardName: "\u7A81\u6483\u69CD\u5175"
   type: 0
   job: 1
-  rarity: 0
+  rarity: 1
   cost: 3
   attack: 3
-  health: 3
+  health: 1
   maxInDeck: 2
   duration: 0
-  description: "\u3010\u53EC\u559A\u6642\u3011\u6B63\u9762\u306B\u6575\u304C\u3044\u308B\u5834\u5408\u3001\u305D\u306E\u6575\u306B1\u30C0\u30E1\u30FC\u30B8\u3002"
+  description: "\u8CAB\u901A\u3001\u901F\u653B"
   scriptKey: DMG_FRONT_1
   abilities:
-  - trigger: 0
-    target: 2
-    effect: 0
-    value: 1
+  - trigger: 4
+    target: 1
+    effect: 13
+    value: 0
+  - trigger: 4
+    target: 1
+    effect: 10
+    value: 0
   cardIcon: {fileID: 1289798015, guid: 65f5871a33d0f60459db6e15f57ee227, type: 3}

@@ -22,7 +22,7 @@ MonoBehaviour:
   health: 0
   maxInDeck: 2
   duration: 0
-  description: "\u81EA\u5206\u306E\u6700\u5927\u30DE\u30CA\u30921\u5897\u3084\u3059\u3002\uFF08\u7A7A\u306E\u30DE\u30CA\u3068\u3057\u3066\u8FFD\u52A0\uFF09"
+  description: "\u5473\u65B9\u30EA\u30FC\u30C0\u30FC\u306E\u30DE\u30CA\u6700\u5927\u5024\u3092+1\u3059\u308B\u3002"
   scriptKey: RAMP_MANA_1
   abilities:
   - trigger: 3
