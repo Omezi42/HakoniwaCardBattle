@@ -1,0 +1,32 @@
+%YAML 1.1
+%TAG !u! tag:unity3d.com,2011:
+--- !u!114 &11400000
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 0}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: c71e7460e0e60df45809536b9f79afbc, type: 3}
+  m_Name: "N014_\u30B0\u30EA\u30D5\u30A9\u30F3"
+  m_EditorClassIdentifier: 
+  id: "N014_\u30B0\u30EA\u30D5\u30A9\u30F3"
+  cardName: "\u30B0\u30EA\u30D5\u30A9\u30F3"
+  type: 0
+  job: 0
+  rarity: 1
+  cost: 4
+  attack: 4
+  health: 2
+  maxInDeck: 2
+  duration: 3
+  description: "\u901F\u653B"
+  scriptKey: 
+  abilities:
+  - trigger: 4
+    target: 0
+    effect: 10
+    value: 0
+  cardIcon: {fileID: 21300000, guid: f2bf144d0687df04298a7888a0e6ecf1, type: 3}

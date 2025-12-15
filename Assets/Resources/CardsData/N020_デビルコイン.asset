@@ -1,0 +1,36 @@
+%YAML 1.1
+%TAG !u! tag:unity3d.com,2011:
+--- !u!114 &11400000
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 0}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: c71e7460e0e60df45809536b9f79afbc, type: 3}
+  m_Name: "N020_\u30C7\u30D3\u30EB\u30B3\u30A4\u30F3"
+  m_EditorClassIdentifier: 
+  id: "N020_\u30C7\u30D3\u30EB\u30B3\u30A4\u30F3"
+  cardName: "\u30C7\u30D3\u30EB\u30B3\u30A4\u30F3"
+  type: 0
+  job: 0
+  rarity: 2
+  cost: 3
+  attack: 3
+  health: 1
+  maxInDeck: 2
+  duration: 3
+  description: "\u3010\u53EC\u559A\u6642\u3011\u5473\u65B9\u30EA\u30FC\u30C0\u30FC\u306B\u30AB\u30FC\u30C9\u30922\u679A\u5F15\u304D\u3001\u6575\u30EA\u30FC\u30C0\u30FC\u306B\u30AB\u30FC\u30C9\u30922\u679A\u5F15\u304F\u3002"
+  scriptKey: 
+  abilities:
+  - trigger: 0
+    target: 8
+    effect: 9
+    value: 2
+  - trigger: 0
+    target: 5
+    effect: 9
+    value: 2
+  cardIcon: {fileID: 21300000, guid: c600bf55654ca304dae044fb8d9e4393, type: 3}

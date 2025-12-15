@@ -1,0 +1,36 @@
+%YAML 1.1
+%TAG !u! tag:unity3d.com,2011:
+--- !u!114 &11400000
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 0}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: c71e7460e0e60df45809536b9f79afbc, type: 3}
+  m_Name: "K008_\u7A81\u6483\u968A\u9577"
+  m_EditorClassIdentifier: 
+  id: "K008_\u7A81\u6483\u968A\u9577"
+  cardName: "\u7A81\u6483\u968A\u9577"
+  type: 0
+  job: 1
+  rarity: 2
+  cost: 4
+  attack: 3
+  health: 3
+  maxInDeck: 2
+  duration: 3
+  description: "\u75BE\u98A8\u3001\u901F\u653B"
+  scriptKey: 
+  abilities:
+  - trigger: 4
+    target: 0
+    effect: 8
+    value: 0
+  - trigger: 4
+    target: 0
+    effect: 10
+    value: 0
+  cardIcon: {fileID: 21300000, guid: fa2ed26dd56f9ba4081e752abac3e726, type: 3}

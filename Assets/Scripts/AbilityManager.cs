@@ -15,21 +15,72 @@ public class AbilityManager : MonoBehaviour
     // スペル使用時
     public void CastSpell(CardData card)
     {
+        // 1. スペル本来の効果を発動（これは今まで通り）
         ProcessAbilities(card, EffectTrigger.SPELL_USE, null);
+
+        // 2. ★追加：「スペルを使ったとき」に反応するユニット/ビルドの効果を発動
+        ProcessSpellCastReaction(GameManager.instance.isPlayerTurn);
+    }
+
+    // ★追加：スペル使用時の反応処理
+    void ProcessSpellCastReaction(bool isPlayerAction)
+    {
+        // アクションした側の盤面を取得
+        Transform myBoard = isPlayerAction ? GameObject.Find("PlayerBoard").transform : GameManager.instance.enemyBoard;
+        
+        // A. ユニットの反応
+        if (myBoard != null)
+        {
+            foreach (UnitMover unit in myBoard.GetComponentsInChildren<UnitMover>())
+            {
+                if (unit.sourceData != null)
+                {
+                    // ユニット自身を発動元(sourceUnit)として効果処理を実行
+                    ProcessAbilities(unit.sourceData, EffectTrigger.SPELL_USE, unit);
+                }
+            }
+        }
+
+        // B. ビルドの反応
+        var activeBuilds = GameManager.instance.activeBuilds;
+        if (activeBuilds != null)
+        {
+            foreach (var build in activeBuilds)
+            {
+                // 自分のビルドかつ、建設完了しているもの
+                if (build.isPlayerOwner == isPlayerAction && !build.isUnderConstruction)
+                {
+                    // ビルドの能力を走査
+                    foreach (var ability in build.data.abilities)
+                    {
+                        if (ability.trigger == EffectTrigger.SPELL_USE)
+                        {
+                            // ターゲット取得（ターゲット不要な効果も含む）
+                            List<object> targets = GetTargets(ability.target, null, null);
+                            
+                            if (targets.Count == 0 && (ability.effect == EffectType.DRAW_CARD || ability.effect == EffectType.GAIN_MANA))
+                            {
+                                ActivateBuildAbility(ability, null, build);
+                            }
+                            else
+                            {
+                                foreach(var target in targets)
+                                {
+                                    ActivateBuildAbility(ability, target, build);
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
     }
 
     // ビルドのアビリティ発動時
     public void ActivateBuildAbility(CardAbility ability, object target, ActiveBuild sourceBuild)
     {
         ApplyEffect(target, ability.effect, ability.value, null);
-        
-        if (sourceBuild != null)
-        {
-            sourceBuild.hasActed = true;
-            // GameManagerのUI更新を呼ぶ（メソッドがあれば）
-            // GameManager.instance.UpdateBuildUI(); // 必要ならpublicにして呼ぶ
-        }
-        
+        if (sourceBuild != null) sourceBuild.hasActed = true;
         Debug.Log($"ビルド効果発動: {ability.effect} -> {target}");
     }
 
@@ -58,9 +109,36 @@ public class AbilityManager : MonoBehaviour
             if (ability.trigger != currentTrigger) continue;
 
             List<object> targets = GetTargets(ability.target, sourceUnit, manualTarget);
+            
+            // ★追加：スペルダメージ計算
+            int finalValue = ability.value;
+            if (card.type == CardType.SPELL && ability.effect == EffectType.DAMAGE)
+            {
+                // プレイヤーのターンならプレイヤー盤面、敵なら敵盤面を参照
+                bool isPlayerTurn = GameManager.instance.isPlayerTurn;
+                Transform myBoard = isPlayerTurn ? GameObject.Find("PlayerBoard").transform : GameManager.instance.enemyBoard;
+                
+                if (myBoard != null)
+                {
+                    foreach (var unit in myBoard.GetComponentsInChildren<UnitMover>())
+                    {
+                        if (unit.spellDamageBonus > 0)
+                        {
+                            finalValue += unit.spellDamageBonus;
+                        }
+                    }
+                }
+                
+                if (finalValue > ability.value) 
+                {
+                    Debug.Log($"Spell Damage Boosted! {ability.value} -> {finalValue}");
+                }
+            }
+
             foreach (object target in targets)
             {
-                ApplyEffect(target, ability.effect, ability.value, sourceUnit);
+                // ability.value の代わりに finalValue を渡す
+                ApplyEffect(target, ability.effect, finalValue, sourceUnit);
             }
         }
     }
@@ -70,7 +148,6 @@ public class AbilityManager : MonoBehaviour
         List<object> results = new List<object>();
         bool isPlayerSide = (source != null) ? source.isPlayerUnit : GameManager.instance.isPlayerTurn;
         
-        // GameManagerの参照を使用
         Transform enemyBoardTrans = isPlayerSide ? GameManager.instance.enemyBoard : GameObject.Find("PlayerBoard").transform;
         Transform myBoardTrans = isPlayerSide ? GameObject.Find("PlayerBoard").transform : GameManager.instance.enemyBoard;
         Transform playerLeader = GameManager.instance.playerLeader;
@@ -105,25 +182,19 @@ public class AbilityManager : MonoBehaviour
                     List<UnitMover> candidates = new List<UnitMover>();
                     var allEnemies = enemyBoardTrans.GetComponentsInChildren<UnitMover>();
                     
-                    // ★突撃槍兵の特例ロジック（自分と同じ列のみ）
-                    // 本来はターゲットタイプを分けるべきですが、簡易実装します
                     if (source != null && source.sourceData.cardName.Contains("突撃槍兵"))
                     {
                         SlotInfo mySlot = source.originalParent.GetComponent<SlotInfo>();
                         foreach(var e in allEnemies)
                         {
                             SlotInfo eSlot = e.transform.parent.GetComponent<SlotInfo>();
-                            if (mySlot != null && eSlot != null && mySlot.y == eSlot.y)
-                            {
-                                candidates.Add(e);
-                            }
+                            if (mySlot != null && eSlot != null && mySlot.y == eSlot.y) candidates.Add(e);
                         }
                     }
                     else
                     {
                         candidates.AddRange(allEnemies);
                     }
-
                     if (candidates.Count > 0) results.Add(candidates[UnityEngine.Random.Range(0, candidates.Count)]);
                 }
                 break;
@@ -134,9 +205,9 @@ public class AbilityManager : MonoBehaviour
             case EffectTarget.SELECT_ENEMY_UNIT:
             case EffectTarget.SELECT_ENEMY_LEADER:
             case EffectTarget.SELECT_ANY_ENEMY:
-                if (manualTarget != null) results.Add(manualTarget);
-                break;
             case EffectTarget.SELECT_UNDAMAGED_ENEMY: 
+            case EffectTarget.SELECT_ALLY_UNIT:
+            case EffectTarget.SELECT_ANY_UNIT:
                 if (manualTarget != null) results.Add(manualTarget);
                 break;
             case EffectTarget.FRONT_ALLY:
@@ -146,31 +217,30 @@ public class AbilityManager : MonoBehaviour
                     if (frontAlly != null) results.Add(frontAlly);
                 }
                 break;
+            case EffectTarget.RANDOM_ALLY:
+                if (myBoardTrans != null)
+                {
+                    var allies = myBoardTrans.GetComponentsInChildren<UnitMover>();
+                    if (allies.Length > 0) results.Add(allies[UnityEngine.Random.Range(0, allies.Length)]);
+                }
+                break;
+            case EffectTarget.ALL_UNITS:
+                if (myBoardTrans != null) foreach (var unit in myBoardTrans.GetComponentsInChildren<UnitMover>()) results.Add(unit);
+                if (enemyBoardTrans != null) foreach (var unit in enemyBoardTrans.GetComponentsInChildren<UnitMover>()) results.Add(unit);
+                break;
         }
         return results;
     }
 
     void ApplyEffect(object target, EffectType effectType, int value, UnitMover source)
     {
-        // ターゲット不要な効果（マナ加速、ドローなど）
         switch (effectType)
         {
             case EffectType.GAIN_MANA:
                 bool isPlayer = (source != null) ? source.isPlayerUnit : GameManager.instance.isPlayerTurn;
-                if (isPlayer) 
-                { 
-                    GameManager.instance.maxMana += value; 
-                    GameManager.instance.currentMana += value; 
-                    GameManager.instance.UpdateManaUI(); // publicにする必要あり
-                }
-                else 
-                { 
-                    GameManager.instance.enemyMaxMana += value; 
-                    GameManager.instance.enemyCurrentMana += value; 
-                    GameManager.instance.UpdateEnemyManaUI(); // publicにする必要あり
-                }
+                if (isPlayer) { GameManager.instance.maxMana += value; GameManager.instance.currentMana += value; GameManager.instance.UpdateManaUI(); }
+                else { GameManager.instance.enemyMaxMana += value; GameManager.instance.enemyCurrentMana += value; GameManager.instance.UpdateEnemyManaUI(); }
                 return;
-
             case EffectType.DRAW_CARD:
                 if (GameManager.instance.isPlayerTurn) GameManager.instance.DealCards(value);
                 return;
@@ -193,7 +263,6 @@ public class AbilityManager : MonoBehaviour
                 {
                     UnitMover u = (UnitMover)target;
                     u.attackPower += value;
-                    // ★重要：UnitViewの更新を忘れずに！
                     if(u.GetComponent<UnitView>()) u.GetComponent<UnitView>().RefreshDisplay(); 
                 }
                 break;
@@ -209,15 +278,31 @@ public class AbilityManager : MonoBehaviour
                 if (target is UnitMover) ((UnitMover)target).TakeDamage(9999);
                 break;
             case EffectType.FORCE_MOVE:
+            case EffectType.RETURN_TO_HAND:
                 if (target is UnitMover)
                 {
                     UnitMover u = (UnitMover)target;
-                    // ランダムな空きスロットへ飛ばす、あるいは手札に戻す
-                    // ここでは「手札に戻す（バウンス）」として実装します
                     Destroy(u.gameObject);
-                    // 本当は手札にカードを生成すべきですが、簡易的に「消滅」または「ダメージ」扱いにします
-                    // もし「移動」なら、隣の空きスロットを探して u.MoveToSlot(...) を呼ぶ
                 }
+                break;
+            case EffectType.TAUNT:
+                if (target is UnitMover)
+                {
+                    UnitMover u = (UnitMover)target;
+                    u.hasTaunt = true;
+                    if(u.GetComponent<UnitView>()) u.GetComponent<UnitView>().RefreshStatusIcons(u.hasTaunt, u.hasStealth);
+                }
+                break;
+            case EffectType.STEALTH:
+                if (target is UnitMover)
+                {
+                    UnitMover u = (UnitMover)target;
+                    u.hasStealth = true;
+                    if(u.GetComponent<UnitView>()) u.GetComponent<UnitView>().RefreshStatusIcons(u.hasTaunt, u.hasStealth);
+                }
+                break;
+            case EffectType.PIERCE:
+                if (target is UnitMover) ((UnitMover)target).hasPierce = true;
                 break;
         }
     }
@@ -231,8 +316,6 @@ public class AbilityManager : MonoBehaviour
         Transform targetBoard = me.isPlayerUnit ? GameManager.instance.enemyBoard : GameObject.Find("PlayerBoard").transform;
         if (targetBoard == null) return null;
 
-        // ★修正：X座標（レーン）が同じ敵を探す
-        // Y座標が0（前衛）を優先し、いなければ1（後衛）を探す
         UnitMover frontEnemy = null;
         UnitMover backEnemy = null;
 
@@ -242,17 +325,13 @@ public class AbilityManager : MonoBehaviour
             if (info.x == mySlot.x && slot.childCount > 0)
             {
                 var unit = slot.GetChild(0).GetComponent<UnitMover>();
-                if (info.y == 0) frontEnemy = unit; // 前衛
-                else if (info.y == 1) backEnemy = unit; // 後衛
+                if (info.y == 0) frontEnemy = unit;
+                else if (info.y == 1) backEnemy = unit;
             }
         }
-        
-        // 前衛がいれば前衛、いなければ後衛を返す
         return frontEnemy != null ? frontEnemy : backEnemy;
     }
 
-    // ★追加：正面の味方を探すメソッド
-    // ★修正：正面の味方を探すメソッド
     UnitMover GetFrontAlly(UnitMover me)
     {
         if (me.originalParent == null) return null;
@@ -262,22 +341,14 @@ public class AbilityManager : MonoBehaviour
         Transform myBoard = me.isPlayerUnit ? GameObject.Find("PlayerBoard").transform : GameManager.instance.enemyBoard;
         if (myBoard == null) return null;
 
-        // ★修正：Y座標（深さ）で判定する
-        // Y=1 (後衛) の場合のみ、Y=0 (前衛) の味方を取得できる
         int targetY = -1;
-        
-        if (mySlot.y == 1) // 自分が後衛なら
-        {
-            targetY = 0; // 前衛を探す
-        }
-        // 自分が前衛(0)なら正面の味方はいないので何もしない
+        if (mySlot.y == 1) targetY = 0; 
 
         if (targetY != -1)
         {
             foreach (Transform slot in myBoard)
             {
                 SlotInfo info = slot.GetComponent<SlotInfo>();
-                // 同じ列(X) かつ 指定した行(Y)
                 if (info.x == mySlot.x && info.y == targetY && slot.childCount > 0)
                 {
                     return slot.GetChild(0).GetComponent<UnitMover>();
@@ -305,10 +376,8 @@ public class AbilityManager : MonoBehaviour
                 {
                     List<object> targets = GetTargets(ability.target, null, null); 
                     
-                    // ★修正：ターゲットがない場合（ドローなど）でも1回は実行する
                     if (targets.Count == 0 && (ability.effect == EffectType.DRAW_CARD || ability.effect == EffectType.GAIN_MANA))
                     {
-                        // ターゲットnullで発動
                         ApplyEffect(null, ability.effect, ability.value, null);
                     }
                     else

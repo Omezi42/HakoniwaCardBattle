@@ -124,7 +124,10 @@ public class BuildView : MonoBehaviour, IPointerEnterHandler, IPointerExitHandle
         {
             if (ability.target == EffectTarget.SELECT_ENEMY_UNIT || 
                 ability.target == EffectTarget.SELECT_ENEMY_LEADER ||
-                ability.target == EffectTarget.SELECT_ANY_ENEMY)
+                ability.target == EffectTarget.SELECT_ANY_ENEMY ||
+                // ★追加
+                ability.target == EffectTarget.SELECT_ALLY_UNIT ||
+                ability.target == EffectTarget.SELECT_ANY_UNIT)
             {
                 return true;
             }
@@ -153,7 +156,9 @@ public class BuildView : MonoBehaviour, IPointerEnterHandler, IPointerExitHandle
         {
             UnitMover unit = (UnitMover)target;
             if (!unit.isPlayerUnit) 
-                return targetType == EffectTarget.SELECT_ENEMY_UNIT || targetType == EffectTarget.SELECT_ANY_ENEMY;
+                return targetType == EffectTarget.SELECT_ENEMY_UNIT || targetType == EffectTarget.SELECT_ANY_ENEMY || targetType == EffectTarget.SELECT_ANY_UNIT; // 敵
+            else
+                return targetType == EffectTarget.SELECT_ALLY_UNIT || targetType == EffectTarget.SELECT_ANY_UNIT; // 味方
         }
         else if (target is Leader)
         {

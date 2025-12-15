@@ -34,7 +34,6 @@ public class CardListManager : MonoBehaviour
     public List<Toggle> costToggles;
     public List<Toggle> rarityToggles;
     
-    // ★重要：Inspectorでここに3つ目のトグル（ビルド用）を追加してください！
     // [0]=Unit, [1]=Spell, [2]=Build
     public List<Toggle> typeToggles; 
 
@@ -115,27 +114,31 @@ public class CardListManager : MonoBehaviour
 
         var filtered = allCards.Where(card => CheckFilter(card)).ToList();
 
-        // ★修正：どのソートモードでも「ビルド(タイプ2)」を一番後ろにする
         switch (currentSortMode)
         {
             case SortMode.Cost:
                 filtered = filtered
-                    .OrderBy(c => c.type == CardType.BUILD ? 1 : 0) // ビルドなら1(後ろ)、それ以外は0(前)
-                    .ThenBy(c => c.cost)
+                    .OrderBy(c => c.cost)
+                    .ThenBy(c => (int)c.type)
                     .ThenBy(c => c.id)
                     .ToList();
                 break;
             case SortMode.Name:
                 filtered = filtered
-                    .OrderBy(c => c.type == CardType.BUILD ? 1 : 0)
-                    .ThenBy(c => c.cardName)
+                    .OrderBy(c => c.cardName)
                     .ToList();
                 break;
             case SortMode.Default:
             default:
+                // ★修正：デフォルトの並び順
+                // 1. タイプ順 (Unit=0, Spell=1, Build=2)
+                // 2. ジョブ順 (Knight=1, Mage=2, ..., Neutral=0 -> Neutralを最後に回す)
+                // 3. コスト順
                 filtered = filtered
-                    .OrderBy(c => c.type == CardType.BUILD ? 1 : 0)
-                    .ThenBy(c => c.id)
+                    .OrderBy(c => (int)c.type) 
+                    .ThenBy(c => c.job == JobType.NEUTRAL ? 99 : (int)c.job) // ニュートラル(0)を99扱いにして最後に回す
+                    .ThenBy(c => c.cost)
+                    .ThenBy(c => c.id) // 同コストならID順
                     .ToList();
                 break;
         }
@@ -147,7 +150,7 @@ public class CardListManager : MonoBehaviour
 
             GameObject obj = Instantiate(cardPrefab, contentParent);
             
-            // 不要なコンポーネント削除（一覧表示用）
+            // 不要なコンポーネント削除
             var drag = obj.GetComponent<Draggable>();
             if (drag != null) Destroy(drag);
             var deckDrag = obj.GetComponent<DeckDraggable>();
@@ -187,7 +190,6 @@ public class CardListManager : MonoBehaviour
         if (!CheckToggleGroup(rarityToggles, (int)card.rarity)) return false;
 
         // Type: 0=Unit, 1=Spell, 2=Build
-        // トグルが足りていない場合、リスト外参照エラーを防ぐためにチェック
         if (!CheckToggleGroup(typeToggles, (int)card.type)) return false;
 
         return true;
@@ -195,19 +197,13 @@ public class CardListManager : MonoBehaviour
 
     bool CheckToggleGroup(List<Toggle> toggles, int index)
     {
-        // 全OFFなら全表示にする場合はここを調整（今回はリセットで全ONにする仕様）
         bool anyOn = toggles.Any(t => t.isOn);
-        if (!anyOn) return true; // ユーザビリティのため全OFF＝全表示とみなす
+        if (!anyOn) return true; 
 
         if (index >= 0 && index < toggles.Count)
         {
             return toggles[index].isOn;
         }
-        
-        // ★修正：トグルリストより大きいインデックス（新タイプなど）が来た場合
-        // 「トグルがない＝フィルタリング対象外」として表示してしまうか、隠すか。
-        // ここでは「トグル未設定のタイプは表示されない」ように false を返します。
-        // （つまり、Unity側でトグルを追加しないとビルドは表示されません！）
         return false;
     }
 

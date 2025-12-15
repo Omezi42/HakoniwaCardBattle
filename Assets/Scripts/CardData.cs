@@ -5,64 +5,32 @@ public enum CardType { UNIT, SPELL, BUILD }
 public enum JobType { NEUTRAL, KNIGHT, MAGE, PRIEST, ROGUE }
 public enum Rarity { COMMON, RARE, EPIC, LEGEND }
 
-// --- 新しい定義 ---
-
-// 1. トリガー（発動条件）
 public enum EffectTrigger
 {
-    ON_SUMMON,      // 召喚時（ファンファーレ）
-    ON_TURN_END,    // ターン終了時
-    ON_ATTACK,      // 攻撃時
-    SPELL_USE,      // スペルとして使用した時
-    PASSIVE,        // 常在効果（守護など）
-    ON_DEATH        // ★追加：死亡時（ラストワード）
+    ON_SUMMON, ON_TURN_END, ON_ATTACK, SPELL_USE, PASSIVE, ON_DEATH, ON_MOVE
 }
 
-// 2. ターゲット（対象）
 public enum EffectTarget
 {
-    NONE,           // 対象なし（自分自身など）
-    SELF,           // 自分
-    FRONT_ENEMY,    // 正面の敵
-    ALL_ENEMIES,    // 敵ユニット全体
-    RANDOM_ENEMY,   // ランダムな敵ユニット
-    ENEMY_LEADER,   // 敵リーダー
-    ALL_ALLIES,     // 味方ユニット全体
-    FRONT_ALLY,     // 正面の味方
-    PLAYER_LEADER,   // 自分リーダー
-    SELECT_ENEMY_UNIT,   // 敵ユニットを選んで発動
-    SELECT_ENEMY_LEADER, // 敵リーダーを選んで発動
-    SELECT_ANY_ENEMY,     // 敵なら誰でもOK
-    SELECT_UNDAMAGED_ENEMY, // 未ダメージの敵を選んで発動
+    NONE, SELF, FRONT_ENEMY, ALL_ENEMIES, RANDOM_ENEMY, ENEMY_LEADER, ALL_ALLIES, FRONT_ALLY, PLAYER_LEADER,
+    SELECT_ENEMY_UNIT, SELECT_ENEMY_LEADER, SELECT_ANY_ENEMY, SELECT_UNDAMAGED_ENEMY,
+    SELECT_ALLY_UNIT, SELECT_ANY_UNIT, RANDOM_ALLY, ALL_UNITS
 }
 
-// 3. エフェクト（効果内容）
 public enum EffectType
 {
-    DAMAGE,
-    HEAL,
-    BUFF_ATTACK,
-    BUFF_HEALTH,
-    GAIN_MANA,
-    DESTROY,
-    TAUNT,
-    STEALTH,
-    QUICK,          // 疾風 (移動と攻撃が両方できる)
-    DRAW_CARD,
-    HASTE,          // 速攻 (召喚酔いなし)
-    FORCE_MOVE,     // 強制移動 (煙玉など)
-    RETURN_TO_HAND, // バウンス
-    PIERCE          // ★追加：貫通（前列攻撃時、後列にもダメージ）
+    DAMAGE, HEAL, BUFF_ATTACK, BUFF_HEALTH, GAIN_MANA, DESTROY, 
+    TAUNT, STEALTH, QUICK, DRAW_CARD, HASTE, FORCE_MOVE, RETURN_TO_HAND, PIERCE,
+    SPELL_DAMAGE_PLUS // ★追加：魔法ダメージ増加
 }
 
-// これらをまとめた「能力データ」クラス
 [System.Serializable] 
 public class CardAbility
 {
-    public EffectTrigger trigger; // いつ？
-    public EffectTarget target;   // 誰に？
-    public EffectType effect;     // 何を？
-    public int value;             // どれくらい？（ダメージ量など）
+    public EffectTrigger trigger;
+    public EffectTarget target;
+    public EffectType effect;
+    public int value;
 }
 
 [CreateAssetMenu(fileName = "NewCard", menuName = "Hakoniwa/CardData")]
@@ -80,8 +48,6 @@ public class CardData : ScriptableObject
     public int attack;
     public int health;
     public int maxInDeck;
-
-    [Tooltip("ビルドの持続ターン数")]
     public int duration; 
 
     [Header("詳細")]

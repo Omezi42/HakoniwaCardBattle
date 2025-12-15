@@ -871,12 +871,18 @@ public class GameManager : MonoBehaviour
             if (targetType == EffectTarget.SELECT_ENEMY_UNIT || targetType == EffectTarget.SELECT_ANY_ENEMY)
                 return !unit.isPlayerUnit; 
 
-            // ★追加：ダメージを受けていない敵ユニットかチェック
             if (targetType == EffectTarget.SELECT_UNDAMAGED_ENEMY)
             {
-                // 敵であり、かつ HPが最大値以上（＝減っていない）ならOK
                 return !unit.isPlayerUnit && (unit.health >= unit.maxHealth);
             }
+
+            // ★追加：味方ユニット選択
+            if (targetType == EffectTarget.SELECT_ALLY_UNIT)
+                return unit.isPlayerUnit;
+
+            // ★追加：敵味方問わずユニット選択
+            if (targetType == EffectTarget.SELECT_ANY_UNIT)
+                return true; 
         }
         else if (leader != null)
         {
@@ -944,7 +950,10 @@ public class GameManager : MonoBehaviour
             if (ab.target == EffectTarget.SELECT_ENEMY_UNIT || 
                 ab.target == EffectTarget.SELECT_ENEMY_LEADER || 
                 ab.target == EffectTarget.SELECT_ANY_ENEMY ||
-                ab.target == EffectTarget.SELECT_UNDAMAGED_ENEMY)
+                ab.target == EffectTarget.SELECT_UNDAMAGED_ENEMY ||
+                // ★追加
+                ab.target == EffectTarget.SELECT_ALLY_UNIT ||
+                ab.target == EffectTarget.SELECT_ANY_UNIT)
                 return true;
         }
         return false;

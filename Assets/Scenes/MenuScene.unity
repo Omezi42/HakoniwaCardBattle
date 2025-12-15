@@ -1013,6 +1013,14 @@ PrefabInstance:
       propertyPath: m_text
       value: "\u30B9\u30BF\u30FC\u30C8"
       objectReference: {fileID: 0}
+    - target: {fileID: 6972211220970786895, guid: 637d195251a668d45b4f5f434a761ec7, type: 3}
+      propertyPath: m_fontStyle
+      value: 1
+      objectReference: {fileID: 0}
+    - target: {fileID: 6972211220970786895, guid: 637d195251a668d45b4f5f434a761ec7, type: 3}
+      propertyPath: m_sharedMaterial
+      value: 
+      objectReference: {fileID: 2100000, guid: f2d7f9993c4173646b4fa7940e7d5518, type: 2}
     - target: {fileID: 7938954145131190663, guid: 637d195251a668d45b4f5f434a761ec7, type: 3}
       propertyPath: m_Name
       value: StartBattleButton
@@ -2427,6 +2435,14 @@ PrefabInstance:
       propertyPath: m_OnClick.m_PersistentCalls.m_Calls.Array.data[0].m_Arguments.m_ObjectArgumentAssemblyTypeName
       value: UnityEngine.Object, UnityEngine
       objectReference: {fileID: 0}
+    - target: {fileID: 463186442640943049, guid: 0c376d4eb26eb794ca97ce909e8a4c8d, type: 3}
+      propertyPath: m_fontStyle
+      value: 1
+      objectReference: {fileID: 0}
+    - target: {fileID: 463186442640943049, guid: 0c376d4eb26eb794ca97ce909e8a4c8d, type: 3}
+      propertyPath: m_sharedMaterial
+      value: 
+      objectReference: {fileID: 2100000, guid: f2d7f9993c4173646b4fa7940e7d5518, type: 2}
     - target: {fileID: 463186442640943049, guid: 0c376d4eb26eb794ca97ce909e8a4c8d, type: 3}
       propertyPath: m_VerticalAlignment
       value: 512
