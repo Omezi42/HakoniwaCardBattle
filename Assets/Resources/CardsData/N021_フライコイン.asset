@@ -22,7 +22,7 @@ MonoBehaviour:
   health: 2
   maxInDeck: 2
   duration: 3
-  description: "\u3010\u53EC\u559A\u6642\u3011\u5473\u65B9\u30EA\u30FC\u30C0\u30FC\u306B\u30AB\u30FC\u30C9\u30921\u679A\u5F15\u304F\u3002"
+  description: "\u3010\u53EC\u559A\u6642\u3011\u5473\u65B9\u30EA\u30FC\u30C0\u30FC\u306F\u30AB\u30FC\u30C9\u30921\u679A\u5F15\u304F\u3002"
   scriptKey: 
   abilities:
   - trigger: 0

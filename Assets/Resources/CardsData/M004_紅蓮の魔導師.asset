@@ -10,27 +10,27 @@ MonoBehaviour:
   m_Enabled: 1
   m_EditorHideFlags: 0
   m_Script: {fileID: 11500000, guid: c71e7460e0e60df45809536b9f79afbc, type: 3}
-  m_Name: M004
+  m_Name: "M004_\u7D05\u84EE\u306E\u9B54\u5C0E\u5E2B"
   m_EditorClassIdentifier: 
-  id: M004
+  id: "M004_\u7D05\u84EE\u306E\u9B54\u5C0E\u5E2B"
   cardName: "\u7D05\u84EE\u306E\u9B54\u5C0E\u5E2B"
   type: 0
   job: 2
   rarity: 3
-  cost: 5
+  cost: 4
   attack: 4
   health: 4
   maxInDeck: 1
   duration: 0
-  description: "\u3010\u53EC\u559A\u6642\u3011\u6575\u5168\u4F53\u306B3\u30C0\u30E1\u30FC\u30B8\u3092\u4E0E\u3048\u3001\u5473\u65B9\u30EA\u30FC\u30C0\u30FC\u306B3\u30C0\u30E1\u30FC\u30B8\u3092\u4E0E\u3048\u308B\u3002"
+  description: "\u3010\u53EC\u559A\u6642\u3011\u6575\u5168\u4F53\u306B1\u30C0\u30E1\u30FC\u30B8\u3092\u4E0E\u3048\u3001\u6575\u30EA\u30FC\u30C0\u30FC\u306B3\u30C0\u30E1\u30FC\u30B8\u3092\u4E0E\u3048\u308B\u3002"
   scriptKey: AOE_ENEMY_1
   abilities:
   - trigger: 0
     target: 3
     effect: 0
-    value: 3
+    value: 1
   - trigger: 0
-    target: 8
+    target: 5
     effect: 0
     value: 3
   cardIcon: {fileID: -256707273, guid: 65f5871a33d0f60459db6e15f57ee227, type: 3}

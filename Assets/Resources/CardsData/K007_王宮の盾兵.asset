@@ -17,7 +17,7 @@ MonoBehaviour:
   type: 0
   job: 1
   rarity: 1
-  cost: 1
+  cost: 2
   attack: 1
   health: 1
   maxInDeck: 2

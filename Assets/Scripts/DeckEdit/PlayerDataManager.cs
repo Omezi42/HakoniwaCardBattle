@@ -24,7 +24,9 @@ public class PlayerDataManager : MonoBehaviour
 
     void Initialize()
     {
+        // 1. 全カードをデータベースに登録
         CardData[] allCards = Resources.LoadAll<CardData>("CardsData");
+        cardDatabase.Clear();
         foreach (var card in allCards)
         {
             if (!cardDatabase.ContainsKey(card.id))
@@ -33,9 +35,13 @@ public class PlayerDataManager : MonoBehaviour
             }
         }
 
+        // 2. セーブデータをロード
         Load();
 
-        // 1. カードが1枚もなければ、全カードを付与（初回プレイ用）
+        // 3. ★追加：データのクリーニング（存在しないIDを除外する）
+        CleanUpInvalidData();
+
+        // 4. 初回プレイ処理（カード付与）
         if (playerData.ownedCardIds.Count == 0)
         {
              foreach (var card in allCards)
@@ -43,34 +49,62 @@ public class PlayerDataManager : MonoBehaviour
                  playerData.ownedCardIds.Add(card.id);
                  playerData.ownedCardIds.Add(card.id); 
              }
-             // カードが増えたのでセーブ
              Save();
         }
 
-        // 2. ★追加：デッキが1つもなければ、初期デッキを作成
+        // 5. 初回プレイ処理（デッキ作成）
         if (playerData.decks.Count == 0)
         {
              CreateStarterDeck();
         }
     }
 
-    // ★追加：初期デッキ作成メソッド（外部からも呼べるようにpublicにしておく）
+    // ★追加：無効なカードIDをお掃除するメソッド
+    void CleanUpInvalidData()
+    {
+        bool isDirty = false;
+
+        // 所持カードのチェック
+        int removedOwned = playerData.ownedCardIds.RemoveAll(id => !cardDatabase.ContainsKey(id));
+        if (removedOwned > 0) isDirty = true;
+
+        // 各デッキのチェック
+        foreach (var deck in playerData.decks)
+        {
+            int removedCards = deck.cardIds.RemoveAll(id => !cardDatabase.ContainsKey(id));
+            int removedBuilds = deck.buildIds.RemoveAll(id => !cardDatabase.ContainsKey(id));
+            
+            if (removedCards > 0 || removedBuilds > 0)
+            {
+                Debug.LogWarning($"デッキ '{deck.deckName}' から無効なカードを削除しました (Card: {removedCards}, Build: {removedBuilds})");
+                isDirty = true;
+            }
+        }
+
+        if (isDirty)
+        {
+            Debug.Log("データの整合性を修正し、保存しました。");
+            Save();
+        }
+    }
+
     public void CreateStarterDeck()
     {
         DeckData starterDeck = new DeckData();
         starterDeck.deckName = "Starter Deck";
-        
-        // ※とりあえず最初のジョブ（KNIGHT等）にする
         starterDeck.deckJob = JobType.KNIGHT; 
 
-        // 所持カードから適当に30枚詰め込む
         int count = 0;
         foreach (string id in playerData.ownedCardIds)
         {
             if (count >= 30) break;
-            // 簡易的にジョブチェックせず入れる（本来はチェック推奨）
-            starterDeck.cardIds.Add(id);
-            count++;
+            // ビルドは除外してユニット/スペルのみ入れる簡易ロジック
+            CardData c = GetCardById(id);
+            if (c != null && c.type != CardType.BUILD)
+            {
+                starterDeck.cardIds.Add(id);
+                count++;
+            }
         }
 
         playerData.decks.Add(starterDeck);
@@ -80,7 +114,6 @@ public class PlayerDataManager : MonoBehaviour
         Debug.Log("初期デッキを自動作成しました。");
     }
 
-    // ... (GetCardById, Save, Load はそのまま) ...
     public CardData GetCardById(string id)
     {
         if (cardDatabase.ContainsKey(id)) return cardDatabase[id];
@@ -100,14 +133,23 @@ public class PlayerDataManager : MonoBehaviour
         if (PlayerPrefs.HasKey("SaveData"))
         {
             string json = PlayerPrefs.GetString("SaveData");
-            // JSON読み込み
             playerData = JsonUtility.FromJson<PlayerData>(json);
 
-            // ★追加：もし読み込みに失敗して null になっていたら、新しく作り直す
             if (playerData == null)
             {
                 Debug.LogWarning("セーブデータの読み込みに失敗しました。データを初期化します。");
                 playerData = new PlayerData();
+            }
+            else
+            {
+                if (playerData.ownedCardIds == null) playerData.ownedCardIds = new List<string>();
+                if (playerData.decks == null) playerData.decks = new List<DeckData>();
+
+                foreach (var deck in playerData.decks)
+                {
+                    if (deck.cardIds == null) deck.cardIds = new List<string>();
+                    if (deck.buildIds == null) deck.buildIds = new List<string>();
+                }
             }
         }
         else

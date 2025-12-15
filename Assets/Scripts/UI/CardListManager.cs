@@ -119,7 +119,7 @@ public class CardListManager : MonoBehaviour
             case SortMode.Cost:
                 filtered = filtered
                     .OrderBy(c => c.cost)
-                    .ThenBy(c => (int)c.type)
+                    .ThenBy(c => c.job == JobType.NEUTRAL ? 99 : (int)c.job)
                     .ThenBy(c => c.id)
                     .ToList();
                 break;
@@ -131,14 +131,14 @@ public class CardListManager : MonoBehaviour
             case SortMode.Default:
             default:
                 // ★修正：デフォルトの並び順
-                // 1. タイプ順 (Unit=0, Spell=1, Build=2)
-                // 2. ジョブ順 (Knight=1, Mage=2, ..., Neutral=0 -> Neutralを最後に回す)
+                // 1. ジョブ順 (Knight=1 -> ... -> Neutral=0を最後に)
+                // 2. タイプ順 (Unit=0 -> Spell=1 -> Build=2)
                 // 3. コスト順
                 filtered = filtered
-                    .OrderBy(c => (int)c.type) 
-                    .ThenBy(c => c.job == JobType.NEUTRAL ? 99 : (int)c.job) // ニュートラル(0)を99扱いにして最後に回す
-                    .ThenBy(c => c.cost)
-                    .ThenBy(c => c.id) // 同コストならID順
+                    .OrderBy(c => c.job == JobType.NEUTRAL ? 99 : (int)c.job) // ニュートラルを最後にする
+                    .ThenBy(c => (int)c.type)                                 // 次にタイプ順
+                    .ThenBy(c => c.cost)                                      // 次にコスト順
+                    .ThenBy(c => c.id)
                     .ToList();
                 break;
         }
@@ -189,7 +189,6 @@ public class CardListManager : MonoBehaviour
 
         if (!CheckToggleGroup(rarityToggles, (int)card.rarity)) return false;
 
-        // Type: 0=Unit, 1=Spell, 2=Build
         if (!CheckToggleGroup(typeToggles, (int)card.type)) return false;
 
         return true;

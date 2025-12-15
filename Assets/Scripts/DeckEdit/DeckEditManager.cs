@@ -10,7 +10,6 @@ public class DeckEditManager : MonoBehaviour
 {
     public static DeckEditManager instance;
 
-    // --- モード管理 ---
     public enum ScreenMode { DeckSelect, DeckEdit }
     private ScreenMode currentMode = ScreenMode.DeckSelect;
 
@@ -23,7 +22,6 @@ public class DeckEditManager : MonoBehaviour
     public Image deckJobIconImage;
     public Sprite[] jobIcons;
 
-    // --- モード別パネル ---
     [Header("一覧モード用 (Deck Select)")]
     public GameObject deckSelectPanelRoot;
     public Transform deckNameListContainer;
@@ -38,7 +36,10 @@ public class DeckEditManager : MonoBehaviour
     public GameObject listCardPrefab;
     public GameObject deckCardPrefab;
     public Button saveButton;
-    public Button returnButton; // ★追加：一覧へ戻るボタン（キャンセル）
+    public Button returnButton; 
+    
+    // ★追加：デッキ削除ボタン
+    public Button deleteDeckButton;
 
     [Header("その他")]
     public ManaCurveGraph manaCurveGraph;
@@ -47,7 +48,6 @@ public class DeckEditManager : MonoBehaviour
     public GameObject newDeckPopup;
     public Button closeNewDeckPopupButton;
 
-    // --- フィルター関連 ---
     [Header("フィルターUI")]
     public Button filterButton;      
     public GameObject filterPanel;   
@@ -72,29 +72,25 @@ public class DeckEditManager : MonoBehaviour
 
     void Start()
     {
-        // フィルターボタン登録
         if (filterButton) filterButton.onClick.AddListener(() => filterPanel.SetActive(true));
         if (applyFilterButton) applyFilterButton.onClick.AddListener(() => { RefreshEditUI(); filterPanel.SetActive(false); });
         if (closeFilterButton) closeFilterButton.onClick.AddListener(() => filterPanel.SetActive(false));
         if (resetFilterButton) resetFilterButton.onClick.AddListener(ResetFilter);
 
-        // ラベルボタン一括操作
         if (jobLabelButton) jobLabelButton.onClick.AddListener(() => ToggleCategory(jobToggles));
         if (costLabelButton) costLabelButton.onClick.AddListener(() => ToggleCategory(costToggles));
         if (rarityLabelButton) rarityLabelButton.onClick.AddListener(() => ToggleCategory(rarityToggles));
         if (typeLabelButton) typeLabelButton.onClick.AddListener(() => ToggleCategory(typeToggles));
 
-        // モード遷移・保存ボタン
         if (createNewDeckButton) createNewDeckButton.onClick.AddListener(OnClickNewDeck);
         if (saveButton) saveButton.onClick.AddListener(OnClickSave);
-        
-        // ★追加：戻るボタンの登録
         if (returnButton) returnButton.onClick.AddListener(OnClickReturn);
-
         if (editStartButton) editStartButton.onClick.AddListener(OnClickStartEdit);
         if (backToMenuButton) backToMenuButton.onClick.AddListener(OnClickBackToMenu);
-
         if (closeNewDeckPopupButton != null) closeNewDeckPopupButton.onClick.AddListener(OnClickCloseNewDeckPopup);
+
+        // ★追加：削除ボタンのリスナー登録
+        if (deleteDeckButton) deleteDeckButton.onClick.AddListener(OnClickDeleteDeck);
 
         if (deckNameInput != null)
         {
@@ -107,10 +103,36 @@ public class DeckEditManager : MonoBehaviour
         ShowDeckSelectScreen();
     }
 
-    // ========================================================================
-    //  1. デッキ一覧（プレビュー）モード
-    // ========================================================================
+    // ★追加：デッキ削除処理
+    public void OnClickDeleteDeck()
+    {
+        if (previewingDeck == null) return;
 
+        // デッキリストから削除
+        if (PlayerDataManager.instance.playerData.decks.Contains(previewingDeck))
+        {
+            PlayerDataManager.instance.playerData.decks.Remove(previewingDeck);
+            
+            // インデックス調整
+            int count = PlayerDataManager.instance.playerData.decks.Count;
+            if (PlayerDataManager.instance.playerData.currentDeckIndex >= count)
+            {
+                PlayerDataManager.instance.playerData.currentDeckIndex = count - 1;
+            }
+            if (PlayerDataManager.instance.playerData.currentDeckIndex < 0) 
+            {
+                PlayerDataManager.instance.playerData.currentDeckIndex = 0;
+            }
+
+            PlayerDataManager.instance.Save();
+            Debug.Log("デッキを削除しました");
+        }
+
+        // 一覧に戻る
+        ShowDeckSelectScreen();
+    }
+
+    // ... (以下、ShowDeckSelectScreen以降は変更なし) ...
     public void ShowDeckSelectScreen()
     {
         currentMode = ScreenMode.DeckSelect;
@@ -122,7 +144,7 @@ public class DeckEditManager : MonoBehaviour
         if (deckNameInput)
         {
             deckNameInput.gameObject.SetActive(true);
-            deckNameInput.interactable = false; // 入力不可
+            deckNameInput.interactable = false; 
         }
 
         RefreshDeckNameList();
@@ -136,6 +158,8 @@ public class DeckEditManager : MonoBehaviour
         }
         else
         {
+            // デッキが0個になった場合の表示クリア
+            previewingDeck = null; // ★ここ重要
             ClearShelf();
             if (deckNameInput) deckNameInput.text = "";
             UpdateJobIcon(null);
@@ -187,10 +211,8 @@ public class DeckEditManager : MonoBehaviour
         SceneManager.LoadScene("MenuScene");
     }
 
-    // ★追加：編集中に一覧へ戻る処理
     public void OnClickReturn()
     {
-        // 保存せずに戻るので、変更内容は破棄されます
         ShowDeckSelectScreen();
     }
 
@@ -208,10 +230,6 @@ public class DeckEditManager : MonoBehaviour
         StartEditing(newDeck);
     }
 
-    // ========================================================================
-    //  2. デッキ編集モード
-    // ========================================================================
-
     public void StartEditing(DeckData deck)
     {
         currentMode = ScreenMode.DeckEdit;
@@ -227,7 +245,7 @@ public class DeckEditManager : MonoBehaviour
         if (deckNameInput) 
         {
             deckNameInput.gameObject.SetActive(true);
-            deckNameInput.interactable = true; // 入力可能
+            deckNameInput.interactable = true; 
             deckNameInput.text = deck.deckName;
         }
 
@@ -266,12 +284,15 @@ public class DeckEditManager : MonoBehaviour
         foreach (Transform child in cardListContent) Destroy(child.gameObject);
         
         var allCards = Resources.LoadAll<CardData>("CardsData").ToList();
+        
+        // ソート順 (ジョブ[専用→共通] -> タイプ -> コスト -> ID)
         var filteredCards = allCards
             .Where(c => (c.job == JobType.NEUTRAL || c.job == previewingDeck.deckJob))
             .Where(c => CheckFilter(c)) 
-            .OrderBy(c => c.type == CardType.BUILD ? 1 : 0)
-            .ThenBy(c => c.cost)
-            .ThenBy(c => c.id)
+            .OrderBy(c => c.job == JobType.NEUTRAL ? 99 : (int)c.job) 
+            .ThenBy(c => (int)c.type)                                 
+            .ThenBy(c => c.cost)                                      
+            .ThenBy(c => c.id)                                        
             .ToList();
 
         foreach (var card in filteredCards)
@@ -294,10 +315,6 @@ public class DeckEditManager : MonoBehaviour
             btn.onClick.AddListener(() => AddCardToDeck(card));
         }
     }
-
-    // ========================================================================
-    //  棚の描画処理
-    // ========================================================================
 
     void UpdateShelfVisuals(List<string> cardIds, List<string> buildIds, bool isEditable)
     {

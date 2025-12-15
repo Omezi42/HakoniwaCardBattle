@@ -10,23 +10,23 @@ MonoBehaviour:
   m_Enabled: 1
   m_EditorHideFlags: 0
   m_Script: {fileID: 11500000, guid: c71e7460e0e60df45809536b9f79afbc, type: 3}
-  m_Name: "P01_\u7652\u3057\u306E\u5149"
+  m_Name: "P011_\u795E\u306E\u795D\u798F"
   m_EditorClassIdentifier: 
-  id: P001
-  cardName: "\u7652\u3057\u306E\u5149"
+  id: "P011_\u795E\u306E\u795D\u798F"
+  cardName: "\u795E\u306E\u795D\u798F"
   type: 1
   job: 3
   rarity: 0
-  cost: 1
-  attack: 0
-  health: 0
+  cost: 2
+  attack: 1
+  health: 1
   maxInDeck: 2
-  duration: 0
-  description: "\u5473\u65B9\u5168\u4F53\u309299\u56DE\u5FA9\u3059\u308B\u3002"
-  scriptKey: HEAL_FULL_UNIT
+  duration: 3
+  description: "\u5473\u65B9\u5168\u4F53\u306E\u4F53\u529B\u3092+1\u3059\u308B\u3002"
+  scriptKey: 
   abilities:
   - trigger: 3
     target: 6
-    effect: 1
-    value: 99
-  cardIcon: {fileID: 99482190, guid: 65f5871a33d0f60459db6e15f57ee227, type: 3}
+    effect: 3
+    value: 1
+  cardIcon: {fileID: 21300000, guid: 8be23ac536da15949b2b5c9669641324, type: 3}

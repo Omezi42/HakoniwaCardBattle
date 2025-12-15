@@ -16,7 +16,7 @@ MonoBehaviour:
   cardName: "\u9B54\u6CD5\u5263\u58EB"
   type: 0
   job: 2
-  rarity: 2
+  rarity: 1
   cost: 3
   attack: 3
   health: 3
