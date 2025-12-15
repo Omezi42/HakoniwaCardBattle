@@ -4,6 +4,7 @@ using TMPro;
 using System.Collections.Generic;
 using UnityEngine.SceneManagement;
 using UnityEngine.EventSystems;
+using System.Linq; // LINQを使うので追加
 
 public class GameManager : MonoBehaviour
 {
@@ -19,9 +20,9 @@ public class GameManager : MonoBehaviour
     public GameObject resultPanel;
     public TextMeshProUGUI resultText;
 
-    [Header("★新：カード拡大表示")]
-    public GameObject enlargedCardPanel; // 拡大表示の親オブジェクト
-    public CardView enlargedCardView;    // 拡大表示に使うCardViewコンポーネント
+    [Header("カード拡大表示")]
+    public GameObject enlargedCardPanel; 
+    public CardView enlargedCardView;    
 
     [Header("ゲームデータ")]
     public int maxMana = 0;
@@ -51,7 +52,6 @@ public class GameManager : MonoBehaviour
     private AudioSource audioSource;
 
     [Header("ビルドシステム")]
-    // ★変更: BuildData ではなく CardData のリストにします
     public List<CardData> playerLoadoutBuilds;
     public List<CardData> enemyLoadoutBuilds;
     public List<ActiveBuild> activeBuilds = new List<ActiveBuild>();
@@ -97,8 +97,10 @@ public class GameManager : MonoBehaviour
     public MulliganManager mulliganManager;
     private List<CardData> tempHand = new List<CardData>();
 
-    // ターン数カウンター
     private int turnCount = 0;
+
+    // ★追加：敵の思考用手札（裏側表示のカードデータ実体）
+    private List<CardData> enemyHandData = new List<CardData>();
 
     private void Awake()
     {
@@ -115,12 +117,11 @@ public class GameManager : MonoBehaviour
         enemyMaxMana = 0;
         enemyCurrentMana = 0;
 
-        // ★追加：拡大パネルの初期化（隠しておく）
         if (enlargedCardPanel != null) enlargedCardPanel.SetActive(false);
         if (enlargedCardView != null) 
         {
-            enlargedCardView.enableHoverScale = false;  // 拡大表示自体がホバーで拡大しないように
-            enlargedCardView.enableHoverDetail = false; // 無限ループ防止
+            enlargedCardView.enableHoverScale = false;  
+            enlargedCardView.enableHoverDetail = false; 
         }
 
         UpdateManaUI();
@@ -140,7 +141,6 @@ public class GameManager : MonoBehaviour
             currentArrow.gameObject.SetActive(false);
         }
 
-        // マリガン開始
         StartMulliganSequence();
     }
 
@@ -274,7 +274,6 @@ public class GameManager : MonoBehaviour
                     if (build.isUnderConstruction)
                     {
                         build.isUnderConstruction = false;
-                        // ★修正：build.data.buildName -> build.data.cardName
                         Debug.Log(build.data.cardName + " 建築完了");
                     }
                     build.hasActed = false;
@@ -297,15 +296,11 @@ public class GameManager : MonoBehaviour
 
     System.Collections.IEnumerator EndTurnSequence()
     {
-        // ★修正：先に効果処理を行ってからターンフラグを折る
-        // （そうしないとドロー効果などが「相手ターン」とみなされて発動しない）
         AbilityManager.instance.ProcessBuildEffects(EffectTrigger.ON_TURN_END, true);
         DecreaseBuildDuration(true);
         AbilityManager.instance.ProcessTurnEndEffects(true);
 
-        // 効果処理が終わってからターン終了
         isPlayerTurn = false;
-
         yield return new WaitForSeconds(1.0f);
         StartEnemyTurn();
     }
@@ -315,6 +310,7 @@ public class GameManager : MonoBehaviour
         StartCoroutine(EnemyTurnSequence());
     }
 
+    // ★重要：敵AIの思考ルーチンを強化
     System.Collections.IEnumerator EnemyTurnSequence()
     {
         if (turnCutIn != null) turnCutIn.Show("ENEMY TURN", Color.red);
@@ -325,58 +321,207 @@ public class GameManager : MonoBehaviour
         enemyCurrentMana = enemyMaxMana;
         UpdateEnemyManaUI();
 
+        // 1. ユニットの状態リセット
         if (enemyBoard != null)
         {
             UnitMover[] enemyUnits = enemyBoard.GetComponentsInChildren<UnitMover>();
             foreach (UnitMover enemyUnit in enemyUnits)
             {
                 enemyUnit.canAttack = true;
-                enemyUnit.canMove = true;
+                enemyUnit.canMove = true; // AIはまだ移動ロジックを持たせていませんが、フラグは立てておく
                 var img = enemyUnit.GetComponent<UnityEngine.UI.Image>();
                 if (img != null) img.color = Color.white;
             }
         }
 
+        // 2. ビルドの更新
         if (activeBuilds != null)
         {
             foreach (var build in activeBuilds)
             {
-                if (!build.isPlayerOwner && build.isUnderConstruction)
-                {
-                    build.isUnderConstruction = false;
-                }
+                if (!build.isPlayerOwner && build.isUnderConstruction) build.isUnderConstruction = false;
             }
         }
         UpdateBuildUI();
 
-        if (enemyBoard != null)
+        // 3. ドロー
+        EnemyDrawCard(1);
+        yield return new WaitForSeconds(1.0f);
+
+        // --- ★AI フェーズ開始 ---
+
+        // A. 攻撃フェーズ（召喚前）
+        // 既に盤面にいるユニットで有利な攻撃があれば行う
+        yield return StartCoroutine(EnemyAttackPhase());
+
+        // B. メインフェーズ（カードプレイ）
+        // マナがなくなるまでカードを使用する
+        yield return StartCoroutine(EnemyMainPhase());
+
+        // C. 攻撃フェーズ（召喚後）
+        // 速攻ユニットなどが攻撃できるように再度攻撃チェック
+        yield return StartCoroutine(EnemyAttackPhase());
+
+        // --- AI フェーズ終了 ---
+
+        // 4. ターン終了時処理
+        AbilityManager.instance.ProcessBuildEffects(EffectTrigger.ON_TURN_END, false);
+        DecreaseBuildDuration(false);
+        AbilityManager.instance.ProcessTurnEndEffects(false);
+
+        Invoke("StartPlayerTurn", 1.0f);
+    }
+
+    // ★追加：敵の攻撃ロジック
+    System.Collections.IEnumerator EnemyAttackPhase()
+    {
+        if (enemyBoard == null) yield break;
+
+        // 攻撃可能な味方ユニットを取得
+        var attackers = enemyBoard.GetComponentsInChildren<UnitMover>()
+            .Where(u => u.canAttack)
+            .OrderByDescending(u => u.attackPower) // 攻撃力が高い順に検討
+            .ToList();
+
+        Transform playerBoard = GameObject.Find("PlayerBoard").transform;
+        
+        foreach (var attacker in attackers)
         {
-            foreach (UnitMover enemyUnit in enemyBoard.GetComponentsInChildren<UnitMover>())
+            if (attacker == null || !attacker.canAttack) continue;
+
+            UnitMover bestTarget = null;
+            bool attackLeader = true; // 基本はリーダー狙い
+
+            // 1. 守護がいるかチェック
+            List<UnitMover> tauntUnits = new List<UnitMover>();
+            List<UnitMover> allPlayerUnits = new List<UnitMover>();
+
+            if (playerBoard != null)
+            {
+                foreach(var u in playerBoard.GetComponentsInChildren<UnitMover>())
+                {
+                    allPlayerUnits.Add(u);
+                    if (u.IsTauntActive) tauntUnits.Add(u);
+                }
+            }
+
+            // 守護がいれば、守護の中から倒せる敵や有利な敵を探す
+            if (tauntUnits.Count > 0)
+            {
+                attackLeader = false;
+                // 一撃で倒せる守護がいればそれを狙う
+                bestTarget = tauntUnits.OrderBy(t => t.health).FirstOrDefault(); 
+            }
+            else
+            {
+                // 2. 有利トレード（一方的に倒せる）を探す
+                // 「自分の攻撃力 >= 敵の体力」かつ「自分の体力 > 敵の攻撃力」
+                var freeKillTarget = allPlayerUnits
+                    .Where(t => !t.hasStealth && CanAttackUnit(attacker, t))
+                    .Where(t => attacker.attackPower >= t.health && attacker.health > t.attackPower)
+                    .OrderByDescending(t => t.attackPower) // 脅威度の高いやつから
+                    .FirstOrDefault();
+
+                if (freeKillTarget != null)
+                {
+                    attackLeader = false;
+                    bestTarget = freeKillTarget;
+                }
+                else
+                {
+                    // 3. リーダーを攻撃可能かチェック
+                    if (!CanAttackLeader(attacker))
+                    {
+                        // リーダーを攻撃できない（鉄壁などで）なら、殴れる敵を殴る
+                        attackLeader = false;
+                        bestTarget = allPlayerUnits
+                            .Where(t => !t.hasStealth && CanAttackUnit(attacker, t))
+                            .OrderBy(t => t.health)
+                            .FirstOrDefault();
+                    }
+                }
+            }
+
+            // 実行
+            if (attackLeader)
             {
                 if (playerLeader != null)
                 {
                     Leader leader = playerLeader.GetComponent<Leader>();
-                    enemyUnit.Attack(leader);
+                    attacker.Attack(leader);
+                    yield return new WaitForSeconds(0.5f);
+                }
+            }
+            else if (bestTarget != null)
+            {
+                attacker.AttackUnit(bestTarget);
+                yield return new WaitForSeconds(0.5f);
+            }
+        }
+    }
+
+    // ★追加：敵のカード使用ロジック
+    System.Collections.IEnumerator EnemyMainPhase()
+    {
+        // プレイ可能なカードがある限りループ
+        bool acted = true;
+        int loopSafety = 0;
+
+        while (acted && loopSafety < 10)
+        {
+            acted = false;
+            loopSafety++;
+
+            // コスト順にソート（高いカードから優先的に使う）
+            var playableCards = enemyHandData
+                .Where(c => c.cost <= enemyCurrentMana)
+                .OrderByDescending(c => c.cost)
+                .ToList();
+
+            if (playableCards.Count > 0)
+            {
+                CardData cardToPlay = playableCards[0];
+                
+                // カードタイプによって処理分岐
+                if (cardToPlay.type == CardType.UNIT)
+                {
+                    if (TrySummonEnemyUnit(cardToPlay))
+                    {
+                        UseEnemyCard(cardToPlay);
+                        acted = true;
+                        yield return new WaitForSeconds(0.8f);
+                    }
+                }
+                else if (cardToPlay.type == CardType.SPELL)
+                {
+                    if (TryCastEnemySpell(cardToPlay))
+                    {
+                        UseEnemyCard(cardToPlay);
+                        acted = true;
+                        yield return new WaitForSeconds(0.8f);
+                    }
+                }
+                else if (cardToPlay.type == CardType.BUILD)
+                {
+                    // ビルドはまだAI未対応（建設枠の管理が必要なため）
+                    // 簡易的に：空きがあれば作る
+                    if (TryBuildEnemy(cardToPlay))
+                    {
+                        UseEnemyCard(cardToPlay);
+                        acted = true;
+                        yield return new WaitForSeconds(0.8f);
+                    }
                 }
             }
         }
-
-        EnemyDrawCard(1);
-        yield return new WaitForSeconds(1.0f);
-
-        EnemySummon();
     }
 
-    public void EnemyDrawCard(int count = 1)
-    {
-        StartCoroutine(DrawSequence(count, false));
-    }
-
-    void EnemySummon()
+    bool TrySummonEnemyUnit(CardData card)
     {
         Transform emptySlot = null;
         if (enemyBoard != null)
         {
+            // 前衛優先で探す
             foreach (Transform slot in enemyBoard)
             {
                 if (slot.childCount == 0)
@@ -389,59 +534,108 @@ public class GameManager : MonoBehaviour
 
         if (emptySlot != null)
         {
-            CardData[] allCards = Resources.LoadAll<CardData>("CardsData");
-            List<CardData> playableCards = new List<CardData>();
+            GameObject newUnit = Instantiate(unitPrefabForEnemy, emptySlot);
+            newUnit.GetComponent<UnitView>().SetUnit(card);
+            UnitMover mover = newUnit.GetComponent<UnitMover>();
+            
+            mover.Initialize(card, false);
+            AbilityManager.instance.ProcessAbilities(card, EffectTrigger.ON_SUMMON, mover);
+            mover.PlaySummonAnimation();
 
-            foreach (CardData card in allCards)
+            if (BattleLogManager.instance != null)
+                BattleLogManager.instance.AddLog($"敵は {card.cardName} を召喚した", false);
+            
+            PlaySE(seSummon);
+            return true;
+        }
+        return false;
+    }
+
+    bool TryCastEnemySpell(CardData card)
+    {
+        // ターゲットが必要かチェック
+        bool needsTarget = CheckIfSpellNeedsTarget(card);
+        object target = null;
+
+        if (needsTarget)
+        {
+            // 簡易ターゲットAI：
+            // ダメージ系ならプレイヤーのユニット > リーダー
+            // バフ系なら自分のユニット
+            // ※詳細な判別はEffectTypeを見る必要があるが、ここではAbilityの1つ目を見て判断する簡易実装
+            if (card.abilities.Count > 0)
             {
-                if (card.cost <= enemyCurrentMana && card.type == CardType.UNIT)
+                var abi = card.abilities[0];
+                if (abi.effect == EffectType.DAMAGE || abi.effect == EffectType.DESTROY)
                 {
-                    playableCards.Add(card);
+                    // 攻撃スペル：プレイヤーのユニットを狙う
+                    var playerBoard = GameObject.Find("PlayerBoard").transform;
+                    var targets = playerBoard.GetComponentsInChildren<UnitMover>().ToList();
+                    if (targets.Count > 0) target = targets[0]; // とりあえず先頭
+                    else target = playerLeader.GetComponent<Leader>();
+                }
+                else if (abi.effect == EffectType.BUFF_ATTACK || abi.effect == EffectType.BUFF_HEALTH || abi.effect == EffectType.HEAL)
+                {
+                    // 支援スペル：自分のユニットを狙う
+                    var targets = enemyBoard.GetComponentsInChildren<UnitMover>().ToList();
+                    if (targets.Count > 0) target = targets[0];
+                    else return false; // 対象がいなければ使わない
                 }
             }
-
-            if (playableCards.Count > 0)
-            {
-                CardData selectedInfo = playableCards[UnityEngine.Random.Range(0, playableCards.Count)];
-                enemyCurrentMana -= selectedInfo.cost;
-                UpdateEnemyManaUI();
-
-                if (BattleLogManager.instance != null)
-                     BattleLogManager.instance.AddLog($"敵は {selectedInfo.cardName} を召喚した", false);
-
-                GameObject newUnit = Instantiate(unitPrefabForEnemy, emptySlot);
-                newUnit.GetComponent<UnitView>().SetUnit(selectedInfo);
-                UnitMover mover = newUnit.GetComponent<UnitMover>();
-                
-                mover.Initialize(selectedInfo, false);
-                AbilityManager.instance.ProcessAbilities(selectedInfo, EffectTrigger.ON_SUMMON, mover);
-
-                mover.PlaySummonAnimation();
-
-                Debug.Log("敵召喚: " + selectedInfo.cardName);
-                PlaySE(seSummon);
-            }
         }
-        
-        AbilityManager.instance.ProcessBuildEffects(EffectTrigger.ON_TURN_END, false);
-        DecreaseBuildDuration(false);
-        AbilityManager.instance.ProcessTurnEndEffects(false);
 
-        Invoke("StartPlayerTurn", 1.0f);
+        // 発動
+        AbilityManager.instance.ProcessAbilities(card, EffectTrigger.SPELL_USE, null, target);
+        
+        if (BattleLogManager.instance != null)
+            BattleLogManager.instance.AddLog($"敵は {card.cardName} を唱えた", false);
+        
+        PlaySE(seSummon);
+        return true;
+    }
+
+    bool TryBuildEnemy(CardData card)
+    {
+        if (activeBuilds == null) activeBuilds = new List<ActiveBuild>();
+        
+        // 敵のビルドが既にないか、または空きがあるか確認（簡易的に制限なしで追加）
+        activeBuilds.Add(new ActiveBuild(card, false));
+        
+        if (BattleLogManager.instance != null)
+            BattleLogManager.instance.AddLog($"敵は {card.cardName} を建設した", false);
+
+        PlaySE(seSummon);
+        UpdateBuildUI();
+        return true;
+    }
+
+    void UseEnemyCard(CardData card)
+    {
+        enemyCurrentMana -= card.cost;
+        UpdateEnemyManaUI();
+        enemyHandData.Remove(card);
+
+        // 敵の手札オブジェクト（見た目）を1つ消す
+        if (enemyHandArea.childCount > 0)
+        {
+            Destroy(enemyHandArea.GetChild(0).gameObject);
+        }
+    }
+
+    public void EnemyDrawCard(int count = 1)
+    {
+        StartCoroutine(DrawSequence(count, false));
     }
 
     // --- ドローアニメーション ---
     System.Collections.IEnumerator DrawSequence(int count, bool isPlayer)
     {
         Vector3 startPos;
-        if (isPlayer)
-            startPos = (playerDeckIsland != null) ? playerDeckIsland.position : new Vector3(800, -400, 0);
-        else
-            startPos = (enemyDeckIsland != null) ? enemyDeckIsland.position : new Vector3(800, 400, 0);
+        if (isPlayer) startPos = (playerDeckIsland != null) ? playerDeckIsland.position : new Vector3(800, -400, 0);
+        else startPos = (enemyDeckIsland != null) ? enemyDeckIsland.position : new Vector3(800, 400, 0);
 
         Vector3 centerPos = (spellCastCenter != null) ? spellCastCenter.position : Vector3.zero;
         
-        // ピボット調整
         float heightOffset = 150f * 3.0f * 0.5f;
         Vector3 adjustCenterPos = centerPos;
         if(isPlayer) adjustCenterPos -= new Vector3(0, heightOffset, 0);
@@ -457,6 +651,17 @@ public class GameManager : MonoBehaviour
                 if (mainDeck.Count == 0) break;
                 cardData = mainDeck[0];
                 mainDeck.RemoveAt(0);
+            }
+            else
+            {
+                // ★追加：敵のドロー処理
+                // 本当は敵用のデッキリストを持つべきですが、簡易的に全カードからランダムドローさせます
+                CardData[] allCards = Resources.LoadAll<CardData>("CardsData");
+                if (allCards.Length > 0)
+                {
+                    cardData = allCards[Random.Range(0, allCards.Length)];
+                    enemyHandData.Add(cardData);
+                }
             }
 
             Transform tempParent = effectCanvasLayer != null ? effectCanvasLayer : handArea.root;
@@ -477,7 +682,7 @@ public class GameManager : MonoBehaviour
                 view.ShowBack(true);
             }
 
-            // 移動
+            // 移動アニメーション
             float moveTime = 0.25f;
             float elapsed = 0f;
             Vector3 initialScale = Vector3.one * 0.8f; 
@@ -487,7 +692,6 @@ public class GameManager : MonoBehaviour
             {
                 float t = elapsed / moveTime;
                 t = t * t * (3f - 2f * t);
-
                 cardObj.transform.position = Vector3.Lerp(startPos, adjustCenterPos, t);
                 cardObj.transform.localScale = Vector3.Lerp(initialScale, centerScale, t);
                 elapsed += Time.deltaTime;
@@ -496,39 +700,17 @@ public class GameManager : MonoBehaviour
             cardObj.transform.position = adjustCenterPos;
             cardObj.transform.localScale = centerScale;
 
-            // めくり
+            // めくり（プレイヤーのみ）
             if (isPlayer && view != null)
             {
                 yield return new WaitForSeconds(0.1f);
                 float flipTime = 0.15f;
                 elapsed = 0f;
                 bool flipped = false;
-
-                while (elapsed < flipTime)
-                {
-                    float t = elapsed / flipTime;
-                    float angle = Mathf.Lerp(0, 90, t);
-                    cardObj.transform.rotation = Quaternion.Euler(0, angle, 0);
-
-                    if (t >= 0.5f && !flipped)
-                    {
-                        view.ShowBack(false);
-                        flipped = true;
-                    }
-                    elapsed += Time.deltaTime;
-                    yield return null;
-                }
+                while (elapsed < flipTime) { float t = elapsed / flipTime; float angle = Mathf.Lerp(0, 90, t); cardObj.transform.rotation = Quaternion.Euler(0, angle, 0); if (t >= 0.5f && !flipped) { view.ShowBack(false); flipped = true; } elapsed += Time.deltaTime; yield return null; }
                 elapsed = 0f;
-                while (elapsed < flipTime)
-                {
-                    float t = elapsed / flipTime;
-                    float angle = Mathf.Lerp(90, 0, t);
-                    cardObj.transform.rotation = Quaternion.Euler(0, angle, 0);
-                    elapsed += Time.deltaTime;
-                    yield return null;
-                }
+                while (elapsed < flipTime) { float t = elapsed / flipTime; float angle = Mathf.Lerp(90, 0, t); cardObj.transform.rotation = Quaternion.Euler(0, angle, 0); elapsed += Time.deltaTime; yield return null; }
                 cardObj.transform.rotation = Quaternion.identity;
-                
                 yield return new WaitForSeconds(0.15f);
             }
             else
@@ -635,8 +817,6 @@ public class GameManager : MonoBehaviour
         UpdateHandState();
     }
 
-    // --- その他メソッド（変更なしだが全量記述） ---
-    
     // 自分用ドロー（AbilityManager等から呼ばれる）
     public void DealCards(int count)
     {
@@ -716,7 +896,6 @@ public class GameManager : MonoBehaviour
         }
 
         // 2. デッキ構築
-        // ★修正：データがない場合は「テスト用ランダムデッキ」を生成する
         if (deckCardIds == null || deckCardIds.Count == 0)
         {
             Debug.LogWarning("デッキデータが見つかりません（または直接シーンを再生しています）。テスト用ランダムデッキを生成します。");
@@ -850,8 +1029,6 @@ public class GameManager : MonoBehaviour
             // クリックで決定
             if (Input.GetMouseButtonDown(0))
             {
-                // ★修正：isValidTarget が true の場合だけ発動する！
-                // （以前は targetObj != null だけで発動していました）
                 if (isValidTarget && targetObj != null)
                 {
                     TryCastSpellToTarget(targetObj);
@@ -1240,94 +1417,59 @@ public class GameManager : MonoBehaviour
     public bool CanAttackUnit(UnitMover attacker, UnitMover target)
     {
         if (target.hasStealth) return false;
-        Transform targetBoard = target.transform.parent.parent; // Slot -> Board
-        // 2. ★修正：守護チェック（守護発動中の敵がいるなら、守護持ち以外は攻撃不可）
+        Transform targetBoard = target.transform.parent.parent; 
         if (ExistsActiveTaunt(targetBoard))
         {
-            // ターゲット自身が守護発動中でなければ攻撃できない
             if (!target.IsTauntActive) return false;
         }
-
         SlotInfo targetSlot = target.transform.parent.GetComponent<SlotInfo>();
         if (targetSlot == null) return true;
-
-        // 定義：「同じX座標で、0にモンスターがいるとき、1は攻撃されない」
-        if (targetSlot.y == 1) // ターゲットが後衛(1)の時
+        if (targetSlot.y == 1) 
         {
             Transform board = target.transform.parent.parent;
             foreach (Transform slot in board)
             {
                 SlotInfo info = slot.GetComponent<SlotInfo>();
-                
-                // 同じ列(X) かつ 前衛(Y=0) にユニットがいるか
-                if (info.x == targetSlot.x && info.y == 0 && slot.childCount > 0)
-                {
-                    return false; // 前衛がいるのでガードされる
-                }
+                if (info.x == targetSlot.x && info.y == 0 && slot.childCount > 0) return false;
             }
         }
         return true;
     }
     
-    // リーダーへの攻撃可否（鉄壁判定）
-    // 「全ての列(X)の前衛(Y=0)が埋まっていると攻撃不可」と解釈します
     public bool CanAttackLeader(UnitMover attacker)
     {
         Transform targetBoard = attacker.isPlayerUnit ? enemyBoard : GameObject.Find("PlayerBoard").transform;
         if (targetBoard == null) return true;
-
-        if (ExistsActiveTaunt(targetBoard))
-        {
-            return false;
-        }
-
-        bool[] isLaneBlocked = new bool[3]; // 横3列
+        if (ExistsActiveTaunt(targetBoard)) return false;
+        bool[] isLaneBlocked = new bool[3]; 
         foreach (Transform slot in targetBoard)
         {
             SlotInfo info = slot.GetComponent<SlotInfo>();
-            if (info != null && info.y == 0 && slot.childCount > 0) // 最前列のみチェック
-            {
-                isLaneBlocked[info.x] = true;
-            }
+            if (info != null && info.y == 0 && slot.childCount > 0) isLaneBlocked[info.x] = true;
         }
-        
-        // 全列の前衛が埋まっていたら攻撃不可
         if (isLaneBlocked[0] && isLaneBlocked[1] && isLaneBlocked[2]) return false;
-        
         return true;
     }
 
-    // ユニット・カードの詳細表示
     public void ShowUnitDetail(CardData data)
     {
-        // 拡大パネルがない、またはデータがない場合は無視
         if (enlargedCardPanel == null || enlargedCardView == null || data == null) return;
-
         enlargedCardPanel.SetActive(true);
-        
-        // CardViewの機能を使ってデータをセット（これで見た目がカードそのものになる）
         enlargedCardView.SetCard(data);
     }
 
     public void SpawnDamageText(Vector3 worldPos, int damage)
     {
         if (floatingTextPrefab == null) return;
-
         Transform parent = effectCanvasLayer != null ? effectCanvasLayer : (handArea != null ? handArea.parent : null);
         if (parent == null) return;
-        
         GameObject obj = Instantiate(floatingTextPrefab, parent);
-        obj.transform.position = worldPos + new Vector3(0, 50f, 0); 
+        obj.transform.position = worldPos + new Vector3(0, 50f, 0);
         obj.GetComponent<FloatingText>().Setup(damage);
     }
 
-    // 詳細を閉じる
     public void OnClickCloseDetail()
     {
-        // 古いパネルを閉じる（念のため）
-        // if (detailPanel != null) detailPanel.SetActive(false);
-
-        // 新しい拡大パネルを閉じる
         if (enlargedCardPanel != null) enlargedCardPanel.SetActive(false);
     }
 
@@ -1350,10 +1492,8 @@ public class GameManager : MonoBehaviour
     {
         if (resultPanel != null && resultPanel.activeSelf) return;
         if (resultPanel != null) resultPanel.SetActive(true);
-        
         GameObject bgm = GameObject.Find("BGM Player");
         if(bgm != null) bgm.GetComponent<AudioSource>().Stop();
-
         if (resultText != null)
         {
             if (isPlayerWin)
@@ -1391,7 +1531,7 @@ public class GameManager : MonoBehaviour
 [System.Serializable]
 public class ActiveBuild
 {
-    public CardData data; // BuildData -> CardData
+    public CardData data; 
     public int remainingTurns;
     public bool isPlayerOwner;
     public bool isUnderConstruction;
