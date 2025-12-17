@@ -1,83 +1,158 @@
 using UnityEngine;
 using UnityEngine.UI;
 using TMPro;
-using System.Collections; // Coroutine用
+using System.Collections.Generic;
+using UnityEngine.EventSystems;
 
 public class BattleLogManager : MonoBehaviour
 {
     public static BattleLogManager instance;
 
     [Header("UIパーツ")]
-    public GameObject logPanelRoot;     // ログウィンドウ全体
-    public Transform contentTransform;  // ScrollViewのContent
+    public Transform content;
+    public GameObject logTextPrefab;
+    public GameObject turnLogPrefab; // ターン表示用のプレハブ
     public ScrollRect scrollRect;
+    public GameObject logPanel;
     
-    // ★追加：閉じるボタン
-    public Button closeButton; 
+    [Header("ボタン")]
+    public Button openButton;
+    public Button closeButton;
 
-    [Header("プレハブ")]
-    public GameObject logItemPrefab;    
-    public GameObject turnLabelPrefab;  
-
-    [Header("設定")]
-    public Color playerColor = new Color(0.8f, 0.9f, 1f); 
-    public Color enemyColor = new Color(1f, 0.8f, 0.8f);  
-
-    private void Awake()
+    void Awake()
     {
         instance = this;
-    }
-
-    // ★追加：ボタンの登録
-    void Start()
-    {
-        if (closeButton != null)
-        {
-            closeButton.onClick.AddListener(CloseLogPanel);
-        }
-    }
-
-    public void AddLog(string message, bool isPlayerAction)
-    {
-        if (logItemPrefab == null) return;
-
-        GameObject obj = Instantiate(logItemPrefab, contentTransform);
+        if (openButton) openButton.onClick.AddListener(ToggleLogPanel);
+        if (closeButton) closeButton.onClick.AddListener(CloseLogPanel);
         
-        TextMeshProUGUI text = obj.GetComponentInChildren<TextMeshProUGUI>();
-        if (text != null) text.text = message;
-
-        Image bg = obj.GetComponentInChildren<Image>();
-        if (bg != null) bg.color = isPlayerAction ? playerColor : enemyColor;
-
-        StartCoroutine(ScrollToBottom());
-    }
-
-    public void AddTurnLabel(int turnCount)
-    {
-        if (turnLabelPrefab == null) return;
-        GameObject obj = Instantiate(turnLabelPrefab, contentTransform);
-        obj.GetComponentInChildren<TextMeshProUGUI>().text = $"--- Turn {turnCount} ---";
-        
-        StartCoroutine(ScrollToBottom());
-    }
-
-    IEnumerator ScrollToBottom()
-    {
-        yield return new WaitForEndOfFrame();
-        Canvas.ForceUpdateCanvases();
-        if (scrollRect != null) scrollRect.verticalNormalizedPosition = 0f;
+        if (logPanel) logPanel.SetActive(false);
     }
 
     public void ToggleLogPanel()
     {
-        if(logPanelRoot != null)
-            logPanelRoot.SetActive(!logPanelRoot.activeSelf);
+        if (logPanel != null)
+        {
+            bool isActive = !logPanel.activeSelf;
+            logPanel.SetActive(isActive);
+            if (isActive)
+            {
+                ScrollToBottom();
+            }
+        }
     }
 
-    // ★追加：閉じる処理
     public void CloseLogPanel()
     {
-        if(logPanelRoot != null)
-            logPanelRoot.SetActive(false);
+        if (logPanel != null) logPanel.SetActive(false);
+    }
+
+    // 通常ログの追加
+    public void AddLog(string text, bool isPlayerAction, CardData card = null)
+    {
+        if (content == null || logTextPrefab == null) return;
+
+        GameObject obj = Instantiate(logTextPrefab, content);
+        
+        // 子要素も含めてテキストコンポーネントを探す
+        TextMeshProUGUI txt = obj.GetComponentInChildren<TextMeshProUGUI>();
+        
+        if (txt)
+        {
+            txt.text = text;
+            txt.color = isPlayerAction ? Color.cyan : new Color(1f, 0.6f, 0.6f);
+
+            // ★修正：相手の行動なら背景反転＆右詰め
+            if (!isPlayerAction)
+            {
+                // 背景（親オブジェクト）を左右反転
+                obj.transform.localScale = new Vector3(-1, 1, 1);
+                
+                // テキスト（子オブジェクト）の反転を打ち消す（-1 * -1 = 1）
+                txt.transform.localScale = new Vector3(-1, 1, 1);
+                
+                // テキストを右詰めにする
+                txt.alignment = TextAlignmentOptions.MidlineRight; 
+            }
+            else
+            {
+                // 自分側は通常通り（念のため明示的に設定）
+                obj.transform.localScale = Vector3.one;
+                txt.transform.localScale = Vector3.one;
+                txt.alignment = TextAlignmentOptions.MidlineLeft;
+            }
+        }
+
+        // ホバー機能
+        if (card != null)
+        {
+            // テキストオブジェクト自体、もしくはルートオブジェクトにイベントを追加
+            var triggerObj = txt != null ? txt.gameObject : obj;
+            var trigger = triggerObj.GetComponent<EventTrigger>();
+            if (trigger == null) trigger = triggerObj.AddComponent<EventTrigger>();
+            
+            var entryEnter = new EventTrigger.Entry { eventID = EventTriggerType.PointerEnter };
+            entryEnter.callback.AddListener((data) => {
+                if (GameManager.instance != null) GameManager.instance.ShowUnitDetail(card);
+            });
+            trigger.triggers.Add(entryEnter);
+
+            var entryExit = new EventTrigger.Entry { eventID = EventTriggerType.PointerExit };
+            entryExit.callback.AddListener((data) => {
+                if (GameManager.instance != null) GameManager.instance.OnClickCloseDetail();
+            });
+            trigger.triggers.Add(entryExit);
+        }
+
+        // パネルが開いているならスクロール更新
+        if (logPanel != null && logPanel.activeSelf)
+        {
+            ScrollToBottom();
+        }
+    }
+
+    // ターンラベルの追加
+    public void AddTurnLabel(int turn)
+    {
+        if (content == null) return;
+
+        // 専用プレハブを使用（なければ通常プレハブで代用）
+        GameObject prefabToUse = turnLogPrefab != null ? turnLogPrefab : logTextPrefab;
+        if (prefabToUse == null) return;
+
+        GameObject obj = Instantiate(prefabToUse, content);
+        
+        // 子要素も含めて探す
+        TextMeshProUGUI txt = obj.GetComponentInChildren<TextMeshProUGUI>();
+        
+        if (txt)
+        {
+            txt.text = $"--- TURN {turn} ---";
+            
+            // 通常プレハブで代用している場合のみ、色や配置を強制変更
+            if (prefabToUse == logTextPrefab)
+            {
+                txt.alignment = TextAlignmentOptions.Center;
+                txt.color = Color.yellow;
+                // 念のためスケールもリセット
+                obj.transform.localScale = Vector3.one;
+                txt.transform.localScale = Vector3.one;
+            }
+        }
+
+        if (logPanel != null && logPanel.activeSelf)
+        {
+            ScrollToBottom();
+        }
+    }
+
+    // 最下部へスクロール
+    void ScrollToBottom()
+    {
+        if (scrollRect != null)
+        {
+            // レイアウト再構築を待ってからスクロール位置をセット
+            Canvas.ForceUpdateCanvases();
+            scrollRect.verticalNormalizedPosition = 0f;
+        }
     }
 }

@@ -22,11 +22,11 @@ MonoBehaviour:
   health: 1
   maxInDeck: 2
   duration: 0
-  description: "\u3010\u53EC\u559A\u6642\u3011\u6575\u30EA\u30FC\u30C0\u30FC\u306B1\u30C0\u30E1\u30FC\u30B8\u3092\u4E0E\u3048\u308B\u3002"
+  description: "\u3010\u53EC\u559A\u6642\u3011\u6575\u30EA\u30FC\u30C0\u30FC\u306B2\u30C0\u30E1\u30FC\u30B8\u3092\u4E0E\u3048\u308B\u3002"
   scriptKey: DMG_LEADER_1
   abilities:
   - trigger: 0
     target: 5
     effect: 0
-    value: 1
+    value: 2
   cardIcon: {fileID: 112398722, guid: 65f5871a33d0f60459db6e15f57ee227, type: 3}

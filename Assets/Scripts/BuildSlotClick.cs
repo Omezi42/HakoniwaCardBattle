@@ -7,7 +7,9 @@ public class BuildSlotClick : MonoBehaviour, IPointerClickHandler, IPointerEnter
 
     public void OnPointerClick(PointerEventData eventData)
     {
-        // GameManager経由でビルドメニューを開く
+        // ★修正：敵の建築スロットはクリックしても反応しない
+        if (!isPlayerSlot) return;
+
         if (GameManager.instance != null)
         {
             GameManager.instance.OpenBuildMenu(isPlayerSlot);

@@ -1,5 +1,6 @@
 using UnityEngine;
 using System.Collections.Generic;
+using System.Linq;
 
 public class AbilityManager : MonoBehaviour
 {
@@ -10,65 +11,35 @@ public class AbilityManager : MonoBehaviour
         if (instance == null) instance = this;
     }
 
-    // --- 外部から呼ばれる入り口 ---
-
-    // スペル使用時
     public void CastSpell(CardData card)
     {
-        // 1. スペル本来の効果を発動（これは今まで通り）
         ProcessAbilities(card, EffectTrigger.SPELL_USE, null);
-
-        // 2. ★追加：「スペルを使ったとき」に反応するユニット/ビルドの効果を発動
-        ProcessSpellCastReaction(GameManager.instance.isPlayerTurn);
+        TriggerSpellReaction(GameManager.instance.isPlayerTurn);
     }
 
-    // ★追加：スペル使用時の反応処理
-    void ProcessSpellCastReaction(bool isPlayerAction)
+    public void TriggerSpellReaction(bool isPlayerAction)
     {
-        // アクションした側の盤面を取得
         Transform myBoard = isPlayerAction ? GameObject.Find("PlayerBoard").transform : GameManager.instance.enemyBoard;
-        
-        // A. ユニットの反応
         if (myBoard != null)
         {
             foreach (UnitMover unit in myBoard.GetComponentsInChildren<UnitMover>())
             {
-                if (unit.sourceData != null)
-                {
-                    // ユニット自身を発動元(sourceUnit)として効果処理を実行
-                    ProcessAbilities(unit.sourceData, EffectTrigger.SPELL_USE, unit);
-                }
+                if (unit.sourceData != null) ProcessAbilities(unit.sourceData, EffectTrigger.SPELL_USE, unit);
             }
         }
 
-        // B. ビルドの反応
         var activeBuilds = GameManager.instance.activeBuilds;
         if (activeBuilds != null)
         {
             foreach (var build in activeBuilds)
             {
-                // 自分のビルドかつ、建設完了しているもの
                 if (build.isPlayerOwner == isPlayerAction && !build.isUnderConstruction)
                 {
-                    // ビルドの能力を走査
                     foreach (var ability in build.data.abilities)
                     {
                         if (ability.trigger == EffectTrigger.SPELL_USE)
                         {
-                            // ターゲット取得（ターゲット不要な効果も含む）
-                            List<object> targets = GetTargets(ability.target, null, null);
-                            
-                            if (targets.Count == 0 && (ability.effect == EffectType.DRAW_CARD || ability.effect == EffectType.GAIN_MANA))
-                            {
-                                ActivateBuildAbility(ability, null, build);
-                            }
-                            else
-                            {
-                                foreach(var target in targets)
-                                {
-                                    ActivateBuildAbility(ability, target, build);
-                                }
-                            }
+                            ExecuteBuildAbility(ability, build);
                         }
                     }
                 }
@@ -76,15 +47,25 @@ public class AbilityManager : MonoBehaviour
         }
     }
 
-    // ビルドのアビリティ発動時
-    public void ActivateBuildAbility(CardAbility ability, object target, ActiveBuild sourceBuild)
+    private void ExecuteBuildAbility(CardAbility ability, ActiveBuild build)
     {
-        ApplyEffect(target, ability.effect, ability.value, null);
-        if (sourceBuild != null) sourceBuild.hasActed = true;
-        Debug.Log($"ビルド効果発動: {ability.effect} -> {target}");
+        List<object> targets = GetTargets(ability.target, null, null);
+        if (targets.Count == 0 && (ability.effect == EffectType.DRAW_CARD || ability.effect == EffectType.GAIN_MANA))
+        {
+            ActivateBuildAbility(ability, null, build);
+        }
+        else
+        {
+            foreach(var target in targets) ActivateBuildAbility(ability, target, build);
+        }
     }
 
-    // ターン終了時効果
+    public void ActivateBuildAbility(CardAbility ability, object target, ActiveBuild sourceBuild)
+    {
+        ApplyEffect(target, ability.effect, ability.value, null, sourceBuild);
+        if (sourceBuild != null) sourceBuild.hasActed = true;
+    }
+
     public void ProcessTurnEndEffects(bool isPlayerEnding)
     {
         Transform board = isPlayerEnding ? GameObject.Find("PlayerBoard").transform : GameManager.instance.enemyBoard;
@@ -92,15 +73,10 @@ public class AbilityManager : MonoBehaviour
         {
             foreach (UnitMover unit in board.GetComponentsInChildren<UnitMover>())
             {
-                if (unit.sourceData != null)
-                {
-                    ProcessAbilities(unit.sourceData, EffectTrigger.ON_TURN_END, unit);
-                }
+                if (unit.sourceData != null) ProcessAbilities(unit.sourceData, EffectTrigger.ON_TURN_END, unit);
             }
         }
     }
-
-    // --- コア処理 ---
 
     public void ProcessAbilities(CardData card, EffectTrigger currentTrigger, UnitMover sourceUnit, object manualTarget = null)
     {
@@ -109,37 +85,58 @@ public class AbilityManager : MonoBehaviour
             if (ability.trigger != currentTrigger) continue;
 
             List<object> targets = GetTargets(ability.target, sourceUnit, manualTarget);
-            
-            // ★追加：スペルダメージ計算
-            int finalValue = ability.value;
-            if (card.type == CardType.SPELL && ability.effect == EffectType.DAMAGE)
-            {
-                // プレイヤーのターンならプレイヤー盤面、敵なら敵盤面を参照
-                bool isPlayerTurn = GameManager.instance.isPlayerTurn;
-                Transform myBoard = isPlayerTurn ? GameObject.Find("PlayerBoard").transform : GameManager.instance.enemyBoard;
-                
-                if (myBoard != null)
-                {
-                    foreach (var unit in myBoard.GetComponentsInChildren<UnitMover>())
-                    {
-                        if (unit.spellDamageBonus > 0)
-                        {
-                            finalValue += unit.spellDamageBonus;
-                        }
-                    }
-                }
-                
-                if (finalValue > ability.value) 
-                {
-                    Debug.Log($"Spell Damage Boosted! {ability.value} -> {finalValue}");
-                }
-            }
+            int finalValue = CalculateFinalValue(card, ability);
 
-            foreach (object target in targets)
+            ApplyAbilityToTargets(ability, targets, finalValue, sourceUnit);
+        }
+    }
+
+    private int CalculateFinalValue(CardData card, CardAbility ability)
+    {
+        int finalValue = ability.value;
+        if (card.type == CardType.SPELL && ability.effect == EffectType.DAMAGE)
+        {
+            finalValue += CalculateSpellDamageBonus();
+        }
+        return finalValue;
+    }
+
+    private int CalculateSpellDamageBonus()
+    {
+        int bonus = 0;
+        bool isPlayerTurn = GameManager.instance.isPlayerTurn;
+        Transform myBoard = isPlayerTurn ? GameObject.Find("PlayerBoard").transform : GameManager.instance.enemyBoard;
+        
+        if (myBoard != null)
+        {
+            foreach (var unit in myBoard.GetComponentsInChildren<UnitMover>())
+                if (unit.spellDamageBonus > 0) bonus += unit.spellDamageBonus;
+        }
+
+        var builds = GameManager.instance.activeBuilds;
+        if (builds != null)
+        {
+            foreach (var b in builds)
             {
-                // ability.value の代わりに finalValue を渡す
-                ApplyEffect(target, ability.effect, finalValue, sourceUnit);
+                if (b.isPlayerOwner == isPlayerTurn && !b.isUnderConstruction)
+                {
+                    foreach (var ba in b.data.abilities)
+                        if (ba.effect == EffectType.SPELL_DAMAGE_PLUS) bonus += ba.value;
+                }
             }
+        }
+        return bonus;
+    }
+
+    private void ApplyAbilityToTargets(CardAbility ability, List<object> targets, int finalValue, UnitMover sourceUnit)
+    {
+        if (targets.Count == 0 && (ability.effect == EffectType.DRAW_CARD || ability.effect == EffectType.GAIN_MANA))
+        {
+            ApplyEffect(null, ability.effect, finalValue, sourceUnit);
+        }
+        else
+        {
+            foreach (object target in targets) ApplyEffect(target, ability.effect, finalValue, sourceUnit);
         }
     }
 
@@ -150,79 +147,35 @@ public class AbilityManager : MonoBehaviour
         
         Transform enemyBoardTrans = isPlayerSide ? GameManager.instance.enemyBoard : GameObject.Find("PlayerBoard").transform;
         Transform myBoardTrans = isPlayerSide ? GameObject.Find("PlayerBoard").transform : GameManager.instance.enemyBoard;
-        Transform playerLeader = GameManager.instance.playerLeader;
 
         switch (targetType)
         {
-            case EffectTarget.SELF:
-                if (source != null) results.Add(source);
+            case EffectTarget.SELF: 
+                if (source != null) results.Add(source); 
                 break;
             case EffectTarget.ENEMY_LEADER:
-                var eLeader = isPlayerSide ? GameObject.Find("EnemyInfo") : (playerLeader != null ? playerLeader.gameObject : null);
-                if (eLeader != null) results.Add(eLeader.GetComponent<Leader>());
-                break;
             case EffectTarget.PLAYER_LEADER:
-                var pLeader = isPlayerSide ? (playerLeader != null ? playerLeader.gameObject : null) : GameObject.Find("EnemyInfo");
-                if (pLeader != null) results.Add(pLeader.GetComponent<Leader>());
+                var leader = GetLeaderTarget(targetType, isPlayerSide);
+                if (leader != null) results.Add(leader);
                 break;
             case EffectTarget.FRONT_ENEMY:
-                if (source != null)
-                {
-                    UnitMover front = GetFrontEnemy(source);
-                    if (front != null) results.Add(front);
-                }
-                break;
             case EffectTarget.ALL_ENEMIES:
-                if (enemyBoardTrans != null)
-                    foreach (var unit in enemyBoardTrans.GetComponentsInChildren<UnitMover>()) results.Add(unit);
-                break;
             case EffectTarget.RANDOM_ENEMY:
-                if (enemyBoardTrans != null)
-                {
-                    List<UnitMover> candidates = new List<UnitMover>();
-                    var allEnemies = enemyBoardTrans.GetComponentsInChildren<UnitMover>();
-                    
-                    if (source != null && source.sourceData.cardName.Contains("突撃槍兵"))
-                    {
-                        SlotInfo mySlot = source.originalParent.GetComponent<SlotInfo>();
-                        foreach(var e in allEnemies)
-                        {
-                            SlotInfo eSlot = e.transform.parent.GetComponent<SlotInfo>();
-                            if (mySlot != null && eSlot != null && mySlot.y == eSlot.y) candidates.Add(e);
-                        }
-                    }
-                    else
-                    {
-                        candidates.AddRange(allEnemies);
-                    }
-                    if (candidates.Count > 0) results.Add(candidates[UnityEngine.Random.Range(0, candidates.Count)]);
-                }
+                results.AddRange(GetEnemyTargets(targetType, source, enemyBoardTrans));
                 break;
             case EffectTarget.ALL_ALLIES:
-                if (myBoardTrans != null)
-                    foreach (var unit in myBoardTrans.GetComponentsInChildren<UnitMover>()) results.Add(unit);
+            case EffectTarget.FRONT_ALLY:
+            case EffectTarget.RANDOM_ALLY:
+                results.AddRange(GetAllyTargets(targetType, source, myBoardTrans));
                 break;
             case EffectTarget.SELECT_ENEMY_UNIT:
             case EffectTarget.SELECT_ENEMY_LEADER:
             case EffectTarget.SELECT_ANY_ENEMY:
             case EffectTarget.SELECT_UNDAMAGED_ENEMY: 
+            case EffectTarget.SELECT_DAMAGED_ENEMY:
             case EffectTarget.SELECT_ALLY_UNIT:
             case EffectTarget.SELECT_ANY_UNIT:
                 if (manualTarget != null) results.Add(manualTarget);
-                break;
-            case EffectTarget.FRONT_ALLY:
-                if (source != null)
-                {
-                    UnitMover frontAlly = GetFrontAlly(source);
-                    if (frontAlly != null) results.Add(frontAlly);
-                }
-                break;
-            case EffectTarget.RANDOM_ALLY:
-                if (myBoardTrans != null)
-                {
-                    var allies = myBoardTrans.GetComponentsInChildren<UnitMover>();
-                    if (allies.Length > 0) results.Add(allies[UnityEngine.Random.Range(0, allies.Length)]);
-                }
                 break;
             case EffectTarget.ALL_UNITS:
                 if (myBoardTrans != null) foreach (var unit in myBoardTrans.GetComponentsInChildren<UnitMover>()) results.Add(unit);
@@ -232,79 +185,194 @@ public class AbilityManager : MonoBehaviour
         return results;
     }
 
-    void ApplyEffect(object target, EffectType effectType, int value, UnitMover source)
+    private Leader GetLeaderTarget(EffectTarget targetType, bool isPlayerSide)
+    {
+        Transform playerLeader = GameManager.instance.playerLeader;
+        GameObject targetObj = null;
+
+        if (targetType == EffectTarget.ENEMY_LEADER)
+        {
+            targetObj = isPlayerSide ? GameObject.Find("EnemyInfo") : (playerLeader != null ? playerLeader.gameObject : null);
+        }
+        else if (targetType == EffectTarget.PLAYER_LEADER)
+        {
+            targetObj = isPlayerSide ? (playerLeader != null ? playerLeader.gameObject : null) : GameObject.Find("EnemyInfo");
+        }
+
+        return targetObj != null ? targetObj.GetComponent<Leader>() : null;
+    }
+
+    private List<object> GetEnemyTargets(EffectTarget targetType, UnitMover source, Transform enemyBoardTrans)
+    {
+        List<object> results = new List<object>();
+        if (enemyBoardTrans == null) return results;
+
+        var allEnemies = enemyBoardTrans.GetComponentsInChildren<UnitMover>();
+
+        switch (targetType)
+        {
+            case EffectTarget.FRONT_ENEMY:
+                if (source != null) 
+                { 
+                    UnitMover front = GetFrontEnemy(source); 
+                    if (front != null) results.Add(front); 
+                }
+                break;
+            case EffectTarget.ALL_ENEMIES:
+                 foreach (var unit in allEnemies) results.Add(unit);
+                break;
+            case EffectTarget.RANDOM_ENEMY:
+                results.AddRange(GetRandomEnemy(source, allEnemies));
+                break;
+        }
+        return results;
+    }
+
+    private List<object> GetRandomEnemy(UnitMover source, UnitMover[] allEnemies)
+    {
+        List<object> results = new List<object>();
+        List<UnitMover> candidates = new List<UnitMover>();
+
+        if (source != null && source.sourceData.cardName.Contains("突撃槍兵"))
+        {
+            SlotInfo mySlot = source.originalParent.GetComponent<SlotInfo>();
+            foreach(var e in allEnemies)
+            {
+                SlotInfo eSlot = e.transform.parent.GetComponent<SlotInfo>();
+                if (mySlot != null && eSlot != null && mySlot.y == eSlot.y) candidates.Add(e);
+            }
+        }
+        else 
+        {
+            candidates.AddRange(allEnemies);
+        }
+
+        if (candidates.Count > 0) 
+        {
+            results.Add(candidates[UnityEngine.Random.Range(0, candidates.Count)]);
+        }
+        return results;
+    }
+
+    private List<object> GetAllyTargets(EffectTarget targetType, UnitMover source, Transform myBoardTrans)
+    {
+        List<object> results = new List<object>();
+        if (myBoardTrans == null) return results;
+
+        switch (targetType)
+        {
+            case EffectTarget.ALL_ALLIES:
+                foreach (var unit in myBoardTrans.GetComponentsInChildren<UnitMover>()) results.Add(unit);
+                break;
+            case EffectTarget.FRONT_ALLY:
+                if (source != null) { UnitMover frontAlly = GetFrontAlly(source); if (frontAlly != null) results.Add(frontAlly); }
+                break;
+            case EffectTarget.RANDOM_ALLY:
+                var allies = myBoardTrans.GetComponentsInChildren<UnitMover>();
+                if (allies.Length > 0) results.Add(allies[UnityEngine.Random.Range(0, allies.Length)]);
+                break;
+        }
+        return results;
+    }
+
+    void ApplyEffect(object target, EffectType effectType, int value, UnitMover source, ActiveBuild sourceBuild = null)
+    {
+        bool isPlayerSide = true;
+        if (source != null) isPlayerSide = source.isPlayerUnit;
+        else if (sourceBuild != null) isPlayerSide = sourceBuild.isPlayerOwner;
+        else isPlayerSide = GameManager.instance.isPlayerTurn;
+
+        if (HandleGlobalEffect(effectType, value, isPlayerSide, target)) return;
+        if (target == null) return;
+
+        UnitMover targetUnit = ResolveTargetUnit(target);
+
+        HandleUnitEffect(effectType, value, targetUnit, target);
+    }
+
+    private UnitMover ResolveTargetUnit(object target)
+    {
+        if (target is UnitMover unit) return unit;
+        if (target is GameObject go) return go.GetComponent<UnitMover>();
+        if (target is Component comp) return comp.GetComponent<UnitMover>();
+        return null;
+    }
+
+    private bool HandleGlobalEffect(EffectType effectType, int value, bool isPlayerSide, object target)
     {
         switch (effectType)
         {
             case EffectType.GAIN_MANA:
-                bool isPlayer = (source != null) ? source.isPlayerUnit : GameManager.instance.isPlayerTurn;
-                if (isPlayer) { GameManager.instance.maxMana += value; GameManager.instance.currentMana += value; GameManager.instance.UpdateManaUI(); }
-                else { GameManager.instance.enemyMaxMana += value; GameManager.instance.enemyCurrentMana += value; GameManager.instance.UpdateEnemyManaUI(); }
-                return;
+                if (isPlayerSide) { GameManager.instance.maxMana += value; GameManager.instance.UpdateManaUI(); }
+                else { GameManager.instance.enemyMaxMana += value; GameManager.instance.UpdateEnemyManaUI(); }
+                return true;
             case EffectType.DRAW_CARD:
-                if (GameManager.instance.isPlayerTurn) GameManager.instance.DealCards(value);
-                return;
+                PerformDrawCard(value, isPlayerSide, target);
+                return true;
+        }
+        return false;
+    }
+
+    private void PerformDrawCard(int value, bool isPlayerSide, object target)
+    {
+        bool drawForPlayer = isPlayerSide;
+        if (target != null)
+        {
+            if (target is Leader leader) drawForPlayer = leader.isPlayer;
+            else if (target is UnitMover unit) drawForPlayer = unit.isPlayerUnit;
         }
 
-        if (target == null) return;
+        if (drawForPlayer) GameManager.instance.DealCards(value);
+        else GameManager.instance.EnemyDrawCard(value);
+    }
 
+    private void HandleUnitEffect(EffectType effectType, int value, UnitMover targetUnit, object target)
+    {
         switch (effectType)
         {
             case EffectType.DAMAGE:
-                if (target is UnitMover) ((UnitMover)target).TakeDamage(value);
-                else if (target is Leader) ((Leader)target).TakeDamage(value);
+                if (targetUnit != null) targetUnit.TakeDamage(value);
+                else if (target is Leader leader) leader.TakeDamage(value);
                 break;
             case EffectType.HEAL:
-                if (target is UnitMover) ((UnitMover)target).Heal(value);
-                else if (target is Leader) ((Leader)target).TakeDamage(-value);
+                if (targetUnit != null) targetUnit.Heal(value);
+                else if (target is Leader leader) leader.TakeDamage(-value);
                 break;
             case EffectType.BUFF_ATTACK:
-                if (target is UnitMover)
-                {
-                    UnitMover u = (UnitMover)target;
-                    u.attackPower += value;
-                    if(u.GetComponent<UnitView>()) u.GetComponent<UnitView>().RefreshDisplay(); 
+                if (targetUnit != null) 
+                { 
+                    targetUnit.attackPower += value; 
+                    if(targetUnit.GetComponent<UnitView>()) targetUnit.GetComponent<UnitView>().RefreshDisplay(); 
                 }
                 break;
             case EffectType.BUFF_HEALTH:
-                if (target is UnitMover)
-                {
-                    UnitMover u = (UnitMover)target;
-                    u.maxHealth += value; 
-                    u.Heal(value); 
-                }
+                if (targetUnit != null) { targetUnit.maxHealth += value; targetUnit.Heal(value); }
                 break;
             case EffectType.DESTROY:
-                if (target is UnitMover) ((UnitMover)target).TakeDamage(9999);
+                if (targetUnit != null) targetUnit.TakeDamage(9999);
                 break;
             case EffectType.FORCE_MOVE:
+                break;
             case EffectType.RETURN_TO_HAND:
-                if (target is UnitMover)
-                {
-                    UnitMover u = (UnitMover)target;
-                    Destroy(u.gameObject);
-                }
+                if (targetUnit != null) targetUnit.ReturnToHand();
+                else Debug.LogWarning($"RETURN_TO_HAND Failed: Target is not a unit. Target={target}");
                 break;
             case EffectType.TAUNT:
-                if (target is UnitMover)
-                {
-                    UnitMover u = (UnitMover)target;
-                    u.hasTaunt = true;
-                    if(u.GetComponent<UnitView>()) u.GetComponent<UnitView>().RefreshStatusIcons(u.hasTaunt, u.hasStealth);
-                }
+                if (targetUnit != null) { targetUnit.hasTaunt = true; RefreshUnitStatus(targetUnit); }
                 break;
             case EffectType.STEALTH:
-                if (target is UnitMover)
-                {
-                    UnitMover u = (UnitMover)target;
-                    u.hasStealth = true;
-                    if(u.GetComponent<UnitView>()) u.GetComponent<UnitView>().RefreshStatusIcons(u.hasTaunt, u.hasStealth);
-                }
+                if (targetUnit != null) { targetUnit.hasStealth = true; RefreshUnitStatus(targetUnit); }
                 break;
             case EffectType.PIERCE:
-                if (target is UnitMover) ((UnitMover)target).hasPierce = true;
+                if (targetUnit != null) targetUnit.hasPierce = true;
                 break;
         }
+    }
+
+    private void RefreshUnitStatus(UnitMover unit)
+    {
+        if (unit.GetComponent<UnitView>()) 
+            unit.GetComponent<UnitView>().RefreshStatusIcons(unit.hasTaunt, unit.hasStealth);
     }
 
     UnitMover GetFrontEnemy(UnitMover me)
@@ -316,20 +384,24 @@ public class AbilityManager : MonoBehaviour
         Transform targetBoard = me.isPlayerUnit ? GameManager.instance.enemyBoard : GameObject.Find("PlayerBoard").transform;
         if (targetBoard == null) return null;
 
-        UnitMover frontEnemy = null;
-        UnitMover backEnemy = null;
+        List<UnitMover> frontEnemies = new List<UnitMover>();
+        List<UnitMover> backEnemies = new List<UnitMover>();
 
         foreach (Transform slot in targetBoard)
         {
             SlotInfo info = slot.GetComponent<SlotInfo>();
-            if (info.x == mySlot.x && slot.childCount > 0)
+            if (slot.childCount > 0)
             {
                 var unit = slot.GetChild(0).GetComponent<UnitMover>();
-                if (info.y == 0) frontEnemy = unit;
-                else if (info.y == 1) backEnemy = unit;
+                if (info.y == 0) frontEnemies.Add(unit);
+                else if (info.y == 1) backEnemies.Add(unit);
             }
         }
-        return frontEnemy != null ? frontEnemy : backEnemy;
+
+        if (frontEnemies.Count > 0) return frontEnemies[UnityEngine.Random.Range(0, frontEnemies.Count)];
+        else if (backEnemies.Count > 0) return backEnemies[UnityEngine.Random.Range(0, backEnemies.Count)];
+
+        return null;
     }
 
     UnitMover GetFrontAlly(UnitMover me)
@@ -337,13 +409,10 @@ public class AbilityManager : MonoBehaviour
         if (me.originalParent == null) return null;
         SlotInfo mySlot = me.originalParent.GetComponent<SlotInfo>();
         if (mySlot == null) return null;
-        
         Transform myBoard = me.isPlayerUnit ? GameObject.Find("PlayerBoard").transform : GameManager.instance.enemyBoard;
         if (myBoard == null) return null;
-
-        int targetY = -1;
-        if (mySlot.y == 1) targetY = 0; 
-
+        
+        int targetY = (mySlot.y == 1) ? 0 : -1;
         if (targetY != -1)
         {
             foreach (Transform slot in myBoard)
@@ -362,31 +431,16 @@ public class AbilityManager : MonoBehaviour
     {
         var activeBuilds = GameManager.instance.activeBuilds;
         if (activeBuilds == null) return;
-
         for (int i = activeBuilds.Count - 1; i >= 0; i--)
         {
             ActiveBuild build = activeBuilds[i];
-
             if (build.isUnderConstruction) continue;
             if (build.isPlayerOwner != isPlayerTurnStart) continue;
-
             foreach (var ability in build.data.abilities)
             {
                 if (ability.trigger == trigger)
                 {
-                    List<object> targets = GetTargets(ability.target, null, null); 
-                    
-                    if (targets.Count == 0 && (ability.effect == EffectType.DRAW_CARD || ability.effect == EffectType.GAIN_MANA))
-                    {
-                        ApplyEffect(null, ability.effect, ability.value, null);
-                    }
-                    else
-                    {
-                        foreach (object target in targets)
-                        {
-                            ApplyEffect(target, ability.effect, ability.value, null);
-                        }
-                    }
+                    ExecuteBuildAbility(ability, build);
                 }
             }
         }

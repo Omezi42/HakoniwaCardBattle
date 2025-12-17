@@ -386,23 +386,24 @@ public class CardCreatorWindow : EditorWindow
     { 
         switch (target) 
         { 
-            case EffectTarget.FRONT_ENEMY: return "正面の敵"; 
-            case EffectTarget.ALL_ENEMIES: return "敵全体"; 
-            case EffectTarget.RANDOM_ENEMY: return "ランダムな敵1体"; 
+            case EffectTarget.FRONT_ENEMY: return "正面の敵モンスター"; 
+            case EffectTarget.ALL_ENEMIES: return "すべての敵モンスター"; 
+            case EffectTarget.RANDOM_ENEMY: return "ランダムな敵モンスター1体"; 
             case EffectTarget.ENEMY_LEADER: return "敵リーダー"; 
             case EffectTarget.ALL_ALLIES: return "味方全体"; 
             case EffectTarget.FRONT_ALLY: return "正面の味方"; 
             case EffectTarget.PLAYER_LEADER: return "味方リーダー"; 
-            case EffectTarget.SELECT_ENEMY_UNIT: return "選択した敵"; 
+            case EffectTarget.SELECT_ENEMY_UNIT: return "選択した敵モンスター"; 
             case EffectTarget.SELECT_ENEMY_LEADER: return "敵リーダー"; 
             case EffectTarget.SELECT_ANY_ENEMY: return "選択した敵"; 
-            case EffectTarget.SELECT_UNDAMAGED_ENEMY: return "無傷の敵"; 
-            case EffectTarget.SELF: return "自身"; 
+            case EffectTarget.SELECT_UNDAMAGED_ENEMY: return "無傷の敵モンスター"; 
             // ★追加
-            case EffectTarget.SELECT_ALLY_UNIT: return "選択した味方";
-            case EffectTarget.SELECT_ANY_UNIT: return "選択したユニット";
-            case EffectTarget.RANDOM_ALLY: return "ランダムな味方1体";
-            case EffectTarget.ALL_UNITS: return "全ユニット";
+            case EffectTarget.SELECT_DAMAGED_ENEMY: return "傷を負った敵モンスター";
+            case EffectTarget.SELF: return "自身"; 
+            case EffectTarget.SELECT_ALLY_UNIT: return "選択した味方"; 
+            case EffectTarget.SELECT_ANY_UNIT: return "選択したユニット"; 
+            case EffectTarget.RANDOM_ALLY: return "ランダムな味方1体"; 
+            case EffectTarget.ALL_UNITS: return "全ユニット"; 
             default: return ""; 
         } 
     }
@@ -448,11 +449,11 @@ public class CardCreatorWindow : EditorWindow
     { 
         switch (effect) { 
             case EffectType.TAUNT: return "守護"; 
-            case EffectType.STEALTH: return "隠密"; 
+            case EffectType.STEALTH: return "潜伏"; // ★隠密 -> 潜伏
             case EffectType.QUICK: return "疾風"; 
             case EffectType.HASTE: return "速攻"; 
             case EffectType.PIERCE: return "貫通"; 
-            case EffectType.SPELL_DAMAGE_PLUS: return "魔導"; // ★ここ
+            case EffectType.SPELL_DAMAGE_PLUS: return "魔導"; 
             default: return ""; 
         } 
     }

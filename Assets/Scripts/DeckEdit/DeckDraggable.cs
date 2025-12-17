@@ -24,18 +24,32 @@ public class DeckDraggable : MonoBehaviour, IBeginDragHandler, IDragHandler, IEn
         scrollRect = GetComponentInParent<ScrollRect>();
     }
 
-    // クリック処理（そのまま）
+    // ★修正：クリック処理
     public void OnPointerClick(PointerEventData eventData)
     {
         if (eventData.dragging) return; 
+
+        // 左クリック
         if (eventData.button == PointerEventData.InputButton.Left)
         {
-            if (eventData.clickCount == 2) DeckEditManager.instance.AddCardToDeck(cardData);
-            else if (SimpleCardModal.instance != null) SimpleCardModal.instance.Open(cardData);
+            if (eventData.clickCount == 2)
+            {
+                // ダブルクリック：デッキに追加
+                if (DeckEditManager.instance != null) 
+                    DeckEditManager.instance.AddCardToDeck(cardData);
+            }
+            else
+            {
+                // シングルクリック：詳細表示
+                if (SimpleCardModal.instance != null) 
+                    SimpleCardModal.instance.Open(cardData);
+            }
         }
+        // 右クリック：デッキに追加
         else if (eventData.button == PointerEventData.InputButton.Right)
         {
-            DeckEditManager.instance.AddCardToDeck(cardData);
+            if (DeckEditManager.instance != null)
+                DeckEditManager.instance.AddCardToDeck(cardData);
         }
     }
 
@@ -56,7 +70,7 @@ public class DeckDraggable : MonoBehaviour, IBeginDragHandler, IDragHandler, IEn
         originalSiblingIndex = transform.GetSiblingIndex();
 
         transform.SetParent(transform.root); 
-        canvasGroup.blocksRaycasts = false; // これによりDropZoneの判定が有効になる
+        canvasGroup.blocksRaycasts = false; 
     }
 
     public void OnDrag(PointerEventData eventData)
@@ -79,10 +93,6 @@ public class DeckDraggable : MonoBehaviour, IBeginDragHandler, IDragHandler, IEn
 
         canvasGroup.blocksRaycasts = true;
 
-        // ★削除：以前あった「高さ判定 (Input.mousePosition.y > ...)」は削除しました。
-        // これにより、DeckDropZoneの上で離さないと追加されなくなります。
-
-        // 元の場所に戻る（追加処理はDropZone側で行われるため、見た目を戻すだけでOK）
         if (transform.parent == transform.root)
         {
             transform.SetParent(originalParent);

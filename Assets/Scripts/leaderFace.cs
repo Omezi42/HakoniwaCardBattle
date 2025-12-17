@@ -34,7 +34,7 @@ public class LeaderFace : MonoBehaviour, IPointerClickHandler, IPointerEnterHand
         {
             // メニューが開いているなら表示しない
             if (GameManager.instance.buildUIManager != null && 
-                GameManager.instance.buildUIManager.panelRoot.activeSelf)
+                GameManager.instance.buildUIManager.gameObject.activeSelf) // panelRoot ではなく gameObject.activeSelf をチェック
             {
                 return;
             }

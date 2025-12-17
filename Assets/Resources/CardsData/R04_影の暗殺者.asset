@@ -16,17 +16,21 @@ MonoBehaviour:
   cardName: "\u5F71\u306E\u6697\u6BBA\u8005"
   type: 0
   job: 4
-  rarity: 2
+  rarity: 3
   cost: 4
   attack: 5
   health: 3
   maxInDeck: 1
   duration: 0
-  description: "\u96A0\u5BC6"
+  description: "\u6F5C\u4F0F\n\u3010\u79FB\u52D5\u6642\u3011\u6B63\u9762\u306E\u6575\u30E2\u30F3\u30B9\u30BF\u30FC\u306B5\u30C0\u30E1\u30FC\u30B8\u3092\u4E0E\u3048\u308B\u3002"
   scriptKey: STEALTH
   abilities:
   - trigger: 4
     target: 1
     effect: 7
     value: 0
+  - trigger: 6
+    target: 2
+    effect: 0
+    value: 5
   cardIcon: {fileID: 840440799, guid: 65f5871a33d0f60459db6e15f57ee227, type: 3}

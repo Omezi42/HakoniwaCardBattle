@@ -36,18 +36,16 @@ public class BattleMenuManager : MonoBehaviour
         if (retireButton != null) retireButton.onClick.AddListener(OnClickRetire);
         
         // ★修正：ログボタンの設定
-        // Startの時点で instance が null でも、クリック時にチェックするように変更
         if (logButton != null) 
         {
+            logButton.onClick.RemoveAllListeners();
             logButton.onClick.AddListener(() => 
             {
+                // メニューを閉じてログを開く
+                if (menuPanel != null) menuPanel.SetActive(false);
                 if (BattleLogManager.instance != null)
                 {
                     BattleLogManager.instance.ToggleLogPanel();
-                }
-                else
-                {
-                    Debug.Log("BattleLogManagerが見つかりません");
                 }
             });
         }

@@ -43,7 +43,7 @@ public class BuildUIManager : MonoBehaviour
     public void OpenMenu(bool isPlayer)
     {
         isPlayerTarget = isPlayer;
-        panelRoot.SetActive(true);
+        if (panelRoot != null) panelRoot.SetActive(true);
         
         // ★追加：敵を見ているときは「ビルドボタン」を隠す（または無効化）
         if (buildButton != null)
@@ -54,7 +54,7 @@ public class BuildUIManager : MonoBehaviour
         UpdateBuildList();
         UpdateStatus();
 
-        detailArea.SetActive(true);
+        if (detailArea != null) detailArea.SetActive(true);
         ClearDetail();
         if (handAreaCanvasGroup != null) handAreaCanvasGroup.blocksRaycasts = false;
     }
@@ -81,7 +81,7 @@ public class BuildUIManager : MonoBehaviour
 
     public void CloseMenu()
     {
-        panelRoot.SetActive(false);
+        if (panelRoot != null) panelRoot.SetActive(false);
         
         // 手札を操作可能に戻す
         if (handAreaCanvasGroup != null) handAreaCanvasGroup.blocksRaycasts = true;
@@ -89,7 +89,10 @@ public class BuildUIManager : MonoBehaviour
 
     void UpdateBuildList()
     {
+        if (listContainer == null) return;
         foreach (Transform child in listContainer) Destroy(child.gameObject);
+
+        if (GameManager.instance == null) return;
 
         if (isPlayerTarget)
         {
@@ -100,22 +103,31 @@ public class BuildUIManager : MonoBehaviour
             currentBuildList = GameManager.instance.enemyLoadoutBuilds; 
         }
 
+        if (currentBuildList == null) return;
+
         for (int i = 0; i < currentBuildList.Count; i++)
         {
             int index = i;
             CardData data = currentBuildList[i]; // ★CardData
+            if (data == null) continue;
             
             GameObject btnObj = Instantiate(buildListButtonPrefab, listContainer);
             TextMeshProUGUI btnText = btnObj.GetComponentInChildren<TextMeshProUGUI>();
             if (btnText != null) btnText.text = data.cardName; // buildName -> cardName
 
-            btnObj.GetComponent<Button>().onClick.AddListener(() => OnSelectBuild(index));
+            Button btn = btnObj.GetComponent<Button>();
+            if (btn != null)
+            {
+                btn.onClick.AddListener(() => OnSelectBuild(index));
+            }
         }
     }
 
     void OnSelectBuild(int index)
     {
         selectedIndex = index;
+        if (currentBuildList == null || index < 0 || index >= currentBuildList.Count) return;
+
         CardData data = currentBuildList[index]; // ★CardData
 
         if (detailIcon != null)
@@ -171,6 +183,8 @@ public class BuildUIManager : MonoBehaviour
 
     void UpdateStatus()
     {
+        if (statusText == null || GameManager.instance == null) return;
+
         string message = "";
         ActiveBuild current = GameManager.instance.GetActiveBuild(isPlayerTarget);
         int cooldown = isPlayerTarget ? GameManager.instance.playerBuildCooldown : GameManager.instance.enemyBuildCooldown;
