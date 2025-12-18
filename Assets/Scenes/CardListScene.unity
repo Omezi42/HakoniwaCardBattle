@@ -5601,6 +5601,10 @@ PrefabInstance:
       propertyPath: m_LocalEulerAnglesHint.z
       value: 0
       objectReference: {fileID: 0}
+    - target: {fileID: 5263371248622837840, guid: 0c376d4eb26eb794ca97ce909e8a4c8d, type: 3}
+      propertyPath: SortKey
+      value: 3725770904
+      objectReference: {fileID: 0}
     - target: {fileID: 7237571035495199283, guid: 0c376d4eb26eb794ca97ce909e8a4c8d, type: 3}
       propertyPath: m_Sprite
       value: 

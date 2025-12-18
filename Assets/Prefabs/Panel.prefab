@@ -13,6 +13,7 @@ GameObject:
   - component: {fileID: 521709846498200936}
   - component: {fileID: 2308374084403368107}
   - component: {fileID: 3541958554993015243}
+  - component: {fileID: -5103433529732722613}
   m_Layer: 5
   m_Name: Panel
   m_TagString: Untagged
@@ -106,6 +107,24 @@ CanvasGroup:
   m_Interactable: 0
   m_BlocksRaycasts: 0
   m_IgnoreParentGroups: 0
+--- !u!114 &-5103433529732722613
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 451721826670635534}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: -1552182283, guid: e725a070cec140c4caffb81624c8c787, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: 
+  SortKey: 2424709249
+  ObjectInterest: 1
+  Flags: 262145
+  NestedObjects: []
+  NetworkedBehaviours: []
+  ForceRemoteRenderTimeframe: 0
 --- !u!1 &4648664526029037234
 GameObject:
   m_ObjectHideFlags: 0

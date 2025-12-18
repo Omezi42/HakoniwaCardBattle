@@ -225,6 +225,66 @@ public class DeckEditManager : MonoBehaviour
         if (newDeckPopup) newDeckPopup.SetActive(true);
     }
 
+    public void OnClickStartImport()
+    {
+        // インポート用ポップアップを開く、あるいはテキストフィールドを表示する処理が必要だが
+        // 簡易的に NewDeckPopup に統合するか、専用メソッドを作る。
+        // ここでは「クリップボードから読み込む」ボタンとして実装する例。
+        
+        string code = GUIUtility.systemCopyBuffer;
+        if (string.IsNullOrEmpty(code))
+        {
+            Debug.LogWarning("クリップボードが空です");
+            return;
+        }
+
+        // 短いコード（7桁）ならFirebaseへ問い合わせ
+        if (code.Length <= 10 && DeckCodeDatabaseManager.instance != null)
+        {
+            Debug.Log($"Fetching deck for code: {code}...");
+            DeckCodeDatabaseManager.instance.GetDeck(code, (longCode, error) => {
+                if (!string.IsNullOrEmpty(longCode))
+                {
+                    ProcessImport(longCode);
+                }
+                else
+                {
+                    Debug.LogError($"Import Failed: {error}");
+                }
+            });
+        }
+        else
+        {
+            // 長いコードなら直接デコード
+            ProcessImport(code);
+        }
+    }
+    
+    private void ProcessImport(string longCode)
+    {
+        DeckData importedDeck = DeckCodeUtility.Decode(longCode, $"Imported {PlayerDataManager.instance.playerData.decks.Count + 1}");
+        if (importedDeck != null)
+        {
+            PlayerDataManager.instance.playerData.decks.Add(importedDeck);
+            PlayerDataManager.instance.playerData.currentDeckIndex = PlayerDataManager.instance.playerData.decks.Count - 1;
+            
+            if (pagedDeckManager != null)
+            {
+                pagedDeckManager.ReloadDeckList();
+                pagedDeckManager.GoToLastPage();
+            }
+            
+            if (newDeckPopup != null) newDeckPopup.SetActive(false);
+
+            StartEditing(importedDeck);
+            Debug.Log("デッキをインポートしました");
+        }
+        else
+        {
+            Debug.LogError("デッキコードが無効です");
+        }
+    }
+
     public void OnSelectJobForNewDeck(int jobIndex)
     {
         DeckData newDeck = new DeckData();

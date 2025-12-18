@@ -13,6 +13,7 @@ GameObject:
   - component: {fileID: 6646385879171596721}
   - component: {fileID: 8569747633807045269}
   - component: {fileID: -3042476617789438021}
+  - component: {fileID: -2544435837233413414}
   m_Layer: 5
   m_Name: SlotPrefab
   m_TagString: Untagged
@@ -106,3 +107,22 @@ MonoBehaviour:
   m_EditorClassIdentifier: 
   unitPrefab: {fileID: 1076929832340740651, guid: ab908f095414fec4db90371aa374c34a, type: 3}
   isEnemySlot: 0
+  highlightColor: {r: 1, g: 1, b: 0.5, a: 1}
+--- !u!114 &-2544435837233413414
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 3592759614435501260}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: -1552182283, guid: e725a070cec140c4caffb81624c8c787, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: 
+  SortKey: 1062428131
+  ObjectInterest: 1
+  Flags: 262145
+  NestedObjects: []
+  NetworkedBehaviours: []
+  ForceRemoteRenderTimeframe: 0

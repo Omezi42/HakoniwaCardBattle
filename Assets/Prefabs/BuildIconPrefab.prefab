@@ -146,6 +146,7 @@ GameObject:
   - component: {fileID: 7291463102509401721}
   - component: {fileID: 7851652519629554522}
   - component: {fileID: 206308910054517232}
+  - component: {fileID: -4884009964023232648}
   m_Layer: 5
   m_Name: BuildIconPrefab
   m_TagString: Untagged
@@ -226,3 +227,21 @@ MonoBehaviour:
   iconImage: {fileID: 7851652519629554522}
   lifeText: {fileID: 3495591900159157074}
   constructionSprite: {fileID: 21300000, guid: 2f337cc27ca449c4f8d8f407d02e6ac6, type: 3}
+--- !u!114 &-4884009964023232648
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 1461163522656884993}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: -1552182283, guid: e725a070cec140c4caffb81624c8c787, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: 
+  SortKey: 3320662
+  ObjectInterest: 1
+  Flags: 262145
+  NestedObjects: []
+  NetworkedBehaviours: []
+  ForceRemoteRenderTimeframe: 0

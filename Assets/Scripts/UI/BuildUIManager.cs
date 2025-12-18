@@ -51,6 +51,11 @@ public class BuildUIManager : MonoBehaviour
             buildButton.gameObject.SetActive(isPlayer);
         }
 
+        if (closeButton != null)
+        {
+            closeButton.gameObject.SetActive(true);
+        }
+
         UpdateBuildList();
         UpdateStatus();
 

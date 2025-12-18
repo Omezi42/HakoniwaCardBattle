@@ -220,6 +220,7 @@ GameObject:
   m_Component:
   - component: {fileID: 134288128341918808}
   - component: {fileID: 7063291839860388175}
+  - component: {fileID: 3628348895440607021}
   m_Layer: 5
   m_Name: SimpleTooltip
   m_TagString: Untagged
@@ -262,3 +263,21 @@ MonoBehaviour:
   rootObject: {fileID: 778556279463412810}
   labelText: {fileID: 6000633687464758814}
   offset: {x: 0, y: 50, z: 0}
+--- !u!114 &3628348895440607021
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 4022231531124299942}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: -1552182283, guid: e725a070cec140c4caffb81624c8c787, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: 
+  SortKey: 3751228594
+  ObjectInterest: 1
+  Flags: 262145
+  NestedObjects: []
+  NetworkedBehaviours: []
+  ForceRemoteRenderTimeframe: 0

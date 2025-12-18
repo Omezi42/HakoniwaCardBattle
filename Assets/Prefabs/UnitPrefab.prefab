@@ -13,6 +13,7 @@ GameObject:
   - component: {fileID: 1480091093174799342}
   - component: {fileID: -1551992278957956622}
   - component: {fileID: 1302416805249677269}
+  - component: {fileID: -3381020995635118543}
   m_Layer: 5
   m_Name: UnitPrefab
   m_TagString: Untagged
@@ -99,8 +100,6 @@ MonoBehaviour:
   hasTaunt: 0
   hasStealth: 0
   isPlayerUnit: 1
-  attackPower: 0
-  health: 0
   scriptKey: 
   maxHealth: 0
   hasHaste: 0
@@ -124,6 +123,25 @@ MonoBehaviour:
   healthText: {fileID: 5445016516752660743}
   tauntIcon: {fileID: 7743348224382275988}
   stealthIcon: {fileID: 5773771463950697935}
+--- !u!114 &-3381020995635118543
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 1076929832340740651}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: -1552182283, guid: e725a070cec140c4caffb81624c8c787, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: 
+  SortKey: 1290315027
+  ObjectInterest: 1
+  Flags: 262145
+  NestedObjects: []
+  NetworkedBehaviours:
+  - {fileID: -1551992278957956622}
+  ForceRemoteRenderTimeframe: 0
 --- !u!1 &5349293515368966433
 GameObject:
   m_ObjectHideFlags: 0

@@ -2,8 +2,9 @@ using UnityEngine;
 using UnityEngine.UI;
 using TMPro;
 using UnityEngine.EventSystems;
+using Fusion; // [NEW]
 
-public class UnitMover : MonoBehaviour, IBeginDragHandler, IDragHandler, IEndDragHandler, IDropHandler, IPointerEnterHandler, IPointerExitHandler
+public class UnitMover : NetworkBehaviour, IBeginDragHandler, IDragHandler, IEndDragHandler, IDropHandler, IPointerEnterHandler, IPointerExitHandler
 {
     public Transform originalParent;
     private CanvasGroup canvasGroup;
@@ -14,8 +15,49 @@ public class UnitMover : MonoBehaviour, IBeginDragHandler, IDragHandler, IEndDra
     public bool hasTaunt = false;
     public bool hasStealth = false;
     public bool isPlayerUnit = true;
-    public int attackPower;
-    public int health;
+
+    // [Hybrid Networked Properties]
+    // オフライン時は _local 変数、オンライン時は Fusion の [Networked] 変数を使う
+    [Networked] private int _netAttackPower { get; set; }
+    private int _localAttackPower;
+    public int attackPower
+    {
+        get => (Object != null && Object.IsValid) ? _netAttackPower : _localAttackPower;
+        set { if (Object != null && Object.IsValid) _netAttackPower = value; else _localAttackPower = value; }
+    }
+
+    [Networked] private int _netHealth { get; set; }
+    private int _localHealth;
+    public int health
+    {
+        get => (Object != null && Object.IsValid) ? _netHealth : _localHealth;
+        set { if (Object != null && Object.IsValid) _netHealth = value; else _localHealth = value; }
+    }
+    
+    [Fusion.Networked] private string _netScriptKey { get; set; }
+    private string _lastScriptKey;
+
+    public override void Render()
+    {
+        base.Render();
+        if (_netScriptKey != _lastScriptKey)
+        {
+            _lastScriptKey = _netScriptKey;
+            OnScriptKeySync();
+        }
+    }
+
+    private void OnScriptKeySync()
+    {
+        if (string.IsNullOrEmpty(_netScriptKey)) return;
+        // すでに初期化済みならスキップ(必要に応じて)
+        if (sourceData != null) return;  
+
+        CardData data = Resources.Load<CardData>("Cards/" + _netScriptKey);
+        // Proxy(相手)として初期化
+        if (data != null) Initialize(data, false);
+    }
+    
     public string scriptKey;
     public int maxHealth;
     public bool hasHaste = false; 
@@ -43,6 +85,56 @@ public class UnitMover : MonoBehaviour, IBeginDragHandler, IDragHandler, IEndDra
         unitView = GetComponent<UnitView>();
         if (canvasGroup == null) canvasGroup = gameObject.AddComponent<CanvasGroup>();
     }
+
+    [Networked] public int NetworkedSlotIndex { get; set; } // ★追加：スロット同期用
+
+    public override void Spawned()
+    {
+        // ネットワークオブジェクトが生成された時の初期化
+        if (HasStateAuthority)
+        {
+            // ホスト(生成者)側:
+            if (!string.IsNullOrEmpty(scriptKey))
+            {
+                _netScriptKey = scriptKey;
+                _netAttackPower = attackPower;
+                _netHealth = health;
+            }
+        
+            // Spawn直後にセットされたSlotIndexを元に、親が正しく設定されているか確認
+            // (通常はSpawn時に親を設定するが、念のため)
+        }
+        else
+        {
+            // クライアント(受信/Proxy)側: card data sync
+            if (!string.IsNullOrEmpty(_netScriptKey))
+            {
+                CardData data = Resources.Load<CardData>("Cards/" + _netScriptKey);
+                // Proxyなので isPlayer=false (敵)
+                if (data != null) Initialize(data, false);
+            }
+
+            // ★追加：親スロットの同期 (Mirroring)
+            // 敵が Slot 1 に出した -> 自分にとっては EnemyBoard の Slot 1 (物理的には同じ位置の場合と、逆の場合がある)
+            // ここでは「相手の Board (EnemyBoard) の同じインデックス」に配置する
+            SyncParentSlot();
+        }
+    }
+    
+    // ★追加: スロット同期処理
+    void SyncParentSlot()
+    {
+        if (GameManager.instance == null) return;
+        Transform enemyBoard = GameObject.Find("EnemyBoard")?.transform;
+        if (enemyBoard != null && NetworkedSlotIndex >= 0 && NetworkedSlotIndex < enemyBoard.childCount)
+        {
+            Transform slot = enemyBoard.GetChild(NetworkedSlotIndex);
+            transform.SetParent(slot, false);
+            transform.localPosition = Vector3.zero;
+        }
+    }
+
+    // ... (Initialize methods remain similar) ...
 
     public void Initialize(CardData data, bool isPlayer)
     {
@@ -82,12 +174,15 @@ public class UnitMover : MonoBehaviour, IBeginDragHandler, IDragHandler, IEndDra
         }
         else
         {
+            // 敵ユニット設定
             canAttack = false; canMove = false;
-            canvasGroup.blocksRaycasts = true;
+            canvasGroup.blocksRaycasts = true; // 詳細を見るためにRaycastは通す
+            
+            // アイコン反転
             if (unitView != null && unitView.iconImage != null)
             {
                 Vector3 scale = unitView.iconImage.transform.localScale;
-                scale.x = -Mathf.Abs(scale.x); 
+                if (scale.x > 0) scale.x = -scale.x; 
                 unitView.iconImage.transform.localScale = scale;
             }
         }
@@ -95,50 +190,269 @@ public class UnitMover : MonoBehaviour, IBeginDragHandler, IDragHandler, IEndDra
         if (unitView != null) unitView.RefreshStatusIcons(hasTaunt, hasStealth);
     }
 
-    // ★修正：手札に戻る処理（デバッグ強化）
     public void ReturnToHand()
     {
-        Debug.Log($"[UnitMover] ReturnToHand called for: {name} (NetID/InstanceID: {this.GetInstanceID()})");
-
-        if (sourceData == null)
-        {
-            Debug.LogError("[UnitMover] sourceData is null. Destroying anyway.");
-            Destroy(gameObject); 
-            return;
-        }
+        Debug.Log($"[UnitMover] ReturnToHand called for: {name}");
+        if (sourceData == null) { Destroy(gameObject); return; }
 
         if (GameManager.instance != null)
         {
-            Debug.Log($"[UnitMover] Calling GameManager.ReturnCardToHand for {sourceData.cardName}");
-            // 自分の現在地をアニメーション開始地点として渡す
             GameManager.instance.ReturnCardToHand(sourceData, isPlayerUnit, transform.position);
-            
-            if (BattleLogManager.instance != null)
-            {
-                BattleLogManager.instance.AddLog($"{sourceData.cardName} を手札に戻した", GameManager.instance.isPlayerTurn);
-            }
+            if (BattleLogManager.instance != null) BattleLogManager.instance.AddLog($"{sourceData.cardName} を手札に戻した", GameManager.instance.isPlayerTurn);
         }
-        else
-        {
-            Debug.LogError("Error: GameManager instance not found.");
-        }
-
-        Destroy(gameObject);
+        // NetworkDespawn should be handled if networked
+        if (Object != null && Object.IsValid) Runner.Despawn(Object);
+        else Destroy(gameObject);
     }
+    
+    // ... (Pointer handlers remain similar) ...
 
     public void OnPointerEnter(PointerEventData eventData) { if (eventData.pointerDrag != null) return; if (sourceData != null && GameManager.instance != null) GameManager.instance.ShowUnitDetail(sourceData); }
     public void OnPointerExit(PointerEventData eventData) { if (GameManager.instance != null) GameManager.instance.OnClickCloseDetail(); }
     public void OnBeginDrag(PointerEventData eventData) { if (isAnimating) return; GameManager.instance.OnClickCloseDetail(); if (!isPlayerUnit) return; if (!canAttack && !canMove) return; originalParent = transform.parent; canvasGroup.blocksRaycasts = false; dragStartPos = transform.position; GameManager.instance.ShowArrow(dragStartPos); GameManager.instance.SetArrowColor(Color.gray); }
     public void OnDrag(PointerEventData eventData) { if (!isPlayerUnit) return; if (!canAttack && !canMove) return; GameManager.instance.UpdateArrow(dragStartPos, eventData.position); UpdateArrowColor(eventData); }
     public void OnEndDrag(PointerEventData eventData) { GameManager.instance.HideArrow(); if (canvasGroup != null) canvasGroup.blocksRaycasts = true; transform.localPosition = Vector3.zero; }
-    public void OnDrop(PointerEventData eventData) { UnitMover attacker = eventData.pointerDrag.GetComponent<UnitMover>(); if (attacker != null && attacker.canAttack) { if (this.isPlayerUnit != attacker.isPlayerUnit) { if (GameManager.instance.CanAttackUnit(attacker, this)) attacker.AttackUnit(this); } return; } }
+    public void OnDrop(PointerEventData eventData) 
+    { 
+        UnitMover attacker = eventData.pointerDrag.GetComponent<UnitMover>(); 
+        if (attacker != null && attacker.canAttack) 
+        { 
+            // 自分のユニット同士ではない場合
+            if (this.isPlayerUnit != attacker.isPlayerUnit) 
+            { 
+                if (GameManager.instance.CanAttackUnit(attacker, this)) 
+                    attacker.AttackUnit(this); 
+            } 
+            return; 
+        } 
+    }
+    
+    // ... (UpdateArrowColor remains similar) ...
     void UpdateArrowColor(PointerEventData eventData) { GameObject hoverObj = eventData.pointerCurrentRaycast.gameObject; Color targetColor = Color.gray; string labelText = ""; bool showLabel = false; string tooltipText = ""; if (hoverObj != null) { UnitMover targetUnit = hoverObj.GetComponentInParent<UnitMover>(); Leader targetLeader = hoverObj.GetComponentInParent<Leader>(); if (canAttack) { if (targetUnit != null && !targetUnit.isPlayerUnit) { if (GameManager.instance.CanAttackUnit(this, targetUnit)) { targetColor = Color.red; labelText = "攻撃"; showLabel = true; int myDmg = this.attackPower; int enemyDmg = targetUnit.attackPower; SlotInfo mySlot = originalParent.GetComponent<SlotInfo>(); SlotInfo targetSlot = targetUnit.transform.parent.GetComponent<SlotInfo>(); if(mySlot!=null && targetSlot!=null && mySlot.x == targetSlot.x) { myDmg++; enemyDmg++; } int myRem = Mathf.Max(0, health - enemyDmg); int enRem = Mathf.Max(0, targetUnit.health - myDmg); tooltipText = $"自分: {health} -> <color={(myRem==0?"red":"white")}>{myRem}</color>\n敵: {targetUnit.health} -> <color={(enRem==0?"red":"white")}>{enRem}</color>"; } } else if (targetLeader != null) { if (GameManager.instance.CanAttackLeader(this)) { targetColor = Color.red; labelText = "攻撃"; showLabel = true; int current = targetLeader.currentHp; int predict = Mathf.Max(0, current - this.attackPower); tooltipText = $"敵リーダー: {current} -> <color=red>{predict}</color>"; } } } DropPlace slot = hoverObj.GetComponentInParent<DropPlace>(); if (canMove && slot != null && !slot.isEnemySlot) { if (slot.transform.childCount == 0) { SlotInfo mySlot = originalParent.GetComponent<SlotInfo>(); SlotInfo targetSlot = slot.GetComponent<SlotInfo>(); if (mySlot != null && targetSlot != null) { int dist = Mathf.Abs(mySlot.x - targetSlot.x) + Mathf.Abs(mySlot.y - targetSlot.y); if (dist == 1) { targetColor = Color.yellow; labelText = "移動"; showLabel = true; } } } } } GameManager.instance.SetArrowColor(targetColor); GameManager.instance.SetArrowLabel(labelText, showLabel); if (!string.IsNullOrEmpty(tooltipText)) GameManager.instance.ShowTooltip(tooltipText); else GameManager.instance.HideTooltip(); }
-    public void Attack(Leader target, bool force = false) { if (!canAttack && !force) return; RemoveStealth(); AbilityManager.instance.ProcessAbilities(sourceData, EffectTrigger.ON_ATTACK, this); string targetName = "リーダー"; if (BattleLogManager.instance != null) BattleLogManager.instance.AddLog($"{sourceData.cardName} が {targetName} に攻撃！", isPlayerUnit); Transform targetTransform = target.transform; if (target.atkArea != null) targetTransform = target.atkArea; StartCoroutine(TackleAnimation(targetTransform, () => { GameManager.instance.PlaySE(GameManager.instance.seAttack); target.TakeDamage(attackPower); ConsumeAttack(); })); }
-    public void AttackUnit(UnitMover enemy) { if (!canAttack) return; RemoveStealth(); AbilityManager.instance.ProcessAbilities(sourceData, EffectTrigger.ON_ATTACK, this); if (BattleLogManager.instance != null) BattleLogManager.instance.AddLog($"{sourceData.cardName} が {enemy.sourceData.cardName} に攻撃！", isPlayerUnit); StartCoroutine(TackleAnimation(enemy.transform, () => { int finalDamage = this.attackPower; int enemyDamage = enemy.attackPower; SlotInfo mySlot = originalParent.GetComponent<SlotInfo>(); SlotInfo enemySlot = enemy.transform.parent.GetComponent<SlotInfo>(); if (mySlot != null && enemySlot != null) { if (mySlot.x == enemySlot.x) { finalDamage += 1; enemyDamage += 1; Debug.Log("正面衝突ボーナス！ +1ダメージ"); } } enemy.TakeDamage(finalDamage); if (hasPierce) { UnitMover backUnit = GetBackUnit(enemy); if (backUnit != null) { if (BattleLogManager.instance != null) BattleLogManager.instance.AddLog("貫通ダメージ！", isPlayerUnit); backUnit.TakeDamage(this.attackPower); } } this.TakeDamage(enemyDamage); ConsumeAttack(); })); }
+
+    // ★修正: AttackをRPC経由に変更
+    public void Attack(Leader target, bool force = false) 
+    { 
+        if (!canAttack && !force) return; 
+        
+        // オンラインならRPC送信
+        if (Object != null && Object.IsValid)
+        {
+            RPC_AttackLeader();
+        }
+        else
+        {
+            // オフラインフォールバック
+            PerformAttackLeader(target);
+        }
+    }
+
+    public void AttackUnit(UnitMover enemy) 
+    { 
+        if (!canAttack) return; 
+        
+        // オンラインならRPC送信
+        if (Object != null && Object.IsValid && enemy.Object != null)
+        {
+            RPC_AttackUnit(enemy.Object.InputAuthority, enemy.Object.Id);
+        }
+        else
+        {
+            // オフラインフォールバック
+            PerformAttackUnit(enemy);
+        }
+    }
+
+    [Rpc(RpcSources.StateAuthority, RpcTargets.All)]
+    public void RPC_AttackLeader()
+    {
+        // 攻撃実行 (受信側で「敵リーダー」への攻撃として再生)
+        // 注意: 実行者が「自分」なら EnemyLeader、実行者が「敵」なら PlayerLeader が対象
+        Leader target = null;
+        if (HasStateAuthority) 
+        {
+            // 自分が攻撃者の場合 -> 敵リーダーを攻撃
+            target = GameObject.Find("EnemyInfo")?.GetComponent<Leader>();
+        }
+        else
+        {
+            // 相手が攻撃者の場合 -> 自分(プレイヤー)のリーダーを攻撃されている
+            target = GameObject.Find("PlayerInfo")?.GetComponent<Leader>();
+            // または PlayerLeader を検索
+            // 通常 PlayerBoard/PlayerInfo 構造なら PlayerInfo
+        }
+
+        if (target != null)
+        {
+            StartCoroutine(TackleAnimation(target.atkArea != null ? target.atkArea : target.transform, () => 
+            {
+                GameManager.instance.PlaySE(GameManager.instance.seAttack);
+                // ダメージ適用はここで行うが、LeaderはNetworkObjectではないので
+                // 各クライアントでHPが減るだけになる(同期ズレのリスクあり)。
+                // 本来はLeaderも同期すべきだが、今回は簡易的に双方で減算。
+                // ただし、勝敗判定がズレないよう注意。
+                target.TakeDamage(attackPower);
+                ConsumeAttack(); // 表示のみ
+            }));
+            
+            // 自分の行動権消費
+            if(HasStateAuthority) ConsumeAttack();
+        }
+    }
+
+    [Rpc(RpcSources.StateAuthority, RpcTargets.All)]
+    public void RPC_AttackUnit(PlayerRef targetOwner, NetworkId targetId)
+    {
+        // NetworkIdから対象オブジェクトを検索
+        NetworkObject targetObj = Runner.FindObject(targetId);
+        if (targetObj != null)
+        {
+            UnitMover enemy = targetObj.GetComponent<UnitMover>();
+            if (enemy != null)
+            {
+                PerformAttackUnit(enemy);
+            }
+        }
+    }
+
+    // 既存ロジックを分離 (RPCと共有)
+    private void PerformAttackLeader(Leader target)
+    {
+        RemoveStealth();
+        AbilityManager.instance.ProcessAbilities(sourceData, EffectTrigger.ON_ATTACK, this);
+        string targetName = "リーダー";
+        if (BattleLogManager.instance != null) BattleLogManager.instance.AddLog($"{sourceData.cardName} が {targetName} に攻撃！", isPlayerUnit);
+        
+        Transform targetTransform = target.transform;
+        if (target.atkArea != null) targetTransform = target.atkArea;
+
+        StartCoroutine(TackleAnimation(targetTransform, () => 
+        {
+            GameManager.instance.PlaySE(GameManager.instance.seAttack);
+            target.TakeDamage(attackPower);
+            ConsumeAttack();
+        }));
+    }
+
+    private void PerformAttackUnit(UnitMover enemy)
+    {
+        RemoveStealth();
+        AbilityManager.instance.ProcessAbilities(sourceData, EffectTrigger.ON_ATTACK, this);
+        if (BattleLogManager.instance != null) BattleLogManager.instance.AddLog($"{sourceData.cardName} が {enemy.sourceData.cardName} に攻撃！", isPlayerUnit);
+
+        StartCoroutine(TackleAnimation(enemy.transform, () => 
+        {
+            int finalDamage = this.attackPower;
+            int enemyDamage = enemy.attackPower;
+            
+            // 正面衝突ボーナス計算 (親スロットが必要)
+            SlotInfo mySlot = (transform.parent != null) ? transform.parent.GetComponent<SlotInfo>() : null;
+            SlotInfo enemySlot = (enemy.transform.parent != null) ? enemy.transform.parent.GetComponent<SlotInfo>() : null;
+            
+            if (mySlot != null && enemySlot != null) 
+            {
+                if (mySlot.x == enemySlot.x) 
+                {
+                    finalDamage += 1;
+                    enemyDamage += 1;
+                    // Debug.Log("正面衝突ボーナス！ +1ダメージ");
+                }
+            }
+            
+            // ダメージ適用
+            // TakeDamage内でStateAuthorityチェックが必要だが、NetworkedプロパティはAuthorityしか変更できない
+            // したがってここで値を減らしても、AuthorityがないとRevertされる。
+            // 解決策: HostにRPCを送ってダメージ処理？
+            // Shared Modeの場合:
+            // 攻撃側(A)が防御側(B)のHPを減らす -> AでB.health -= dmg してもBに反映されない。
+            // しかし、B側でもこのRPCが走っている！
+            // RPC_AttackUnit は RpcTargets.All なので、B側（被害者）でも PerformAttackUnit が呼ばれる。
+            // 被害者(B)が HasStateAuthority を持っていれば、そこで health -= dmg されて同期される！
+            
+            enemy.TakeDamage(finalDamage);
+            
+            if (hasPierce) 
+            {
+                UnitMover backUnit = GetBackUnit(enemy);
+                if (backUnit != null) 
+                {
+                    if (BattleLogManager.instance != null) BattleLogManager.instance.AddLog("貫通ダメージ！", isPlayerUnit);
+                    backUnit.TakeDamage(this.attackPower);
+                }
+            }
+            
+            this.TakeDamage(enemyDamage);
+            
+            if(HasStateAuthority) ConsumeAttack();
+        }));
+    }
+
     void RemoveStealth() { if (hasStealth) { hasStealth = false; GetComponent<CanvasGroup>().alpha = 1.0f; if (unitView != null) unitView.RefreshStatusIcons(hasTaunt, hasStealth); Debug.Log("潜伏が解除されました"); } }
     UnitMover GetBackUnit(UnitMover frontUnit) { if (frontUnit.transform.parent == null) return null; SlotInfo frontSlot = frontUnit.transform.parent.GetComponent<SlotInfo>(); if (frontSlot == null || frontSlot.y != 0) return null; Transform board = frontUnit.transform.parent.parent; if (board == null) return null; foreach (Transform slot in board) { SlotInfo info = slot.GetComponent<SlotInfo>(); if (info != null && info.x == frontSlot.x && info.y == 1 && slot.childCount > 0) { return slot.GetChild(0).GetComponent<UnitMover>(); } } return null; }
-    public void TakeDamage(int damage) { GameManager.instance.SpawnDamageText(transform.position, damage); health -= damage; if (unitView != null) unitView.RefreshDisplay(); if (health <= 0) { if (AbilityManager.instance != null && sourceData != null) AbilityManager.instance.ProcessAbilities(sourceData, EffectTrigger.ON_DEATH, this); if (GameManager.instance != null) GameManager.instance.PlayDiscardAnimation(sourceData, isPlayerUnit); Destroy(gameObject); } if (damage > 0) GameManager.instance.PlaySE(GameManager.instance.seDamage); }
-    private System.Collections.IEnumerator TackleAnimation(Transform target, System.Action onHitLogic) { isAnimating = true; transform.SetParent(transform.root); Vector3 startPos = transform.position; Vector3 targetPos = target.position; Vector3 attackEndPos = Vector3.Lerp(startPos, targetPos, 0.7f); float duration = 0.15f; float elapsed = 0f; while (elapsed < duration) { transform.position = Vector3.Lerp(startPos, attackEndPos, elapsed / duration); elapsed += Time.deltaTime; yield return null; } transform.position = attackEndPos; onHitLogic?.Invoke(); yield return new WaitForSeconds(0.05f); elapsed = 0f; while (elapsed < duration) { transform.position = Vector3.Lerp(attackEndPos, startPos, elapsed / duration); elapsed += Time.deltaTime; yield return null; } if (originalParent != null) { transform.SetParent(originalParent); transform.localPosition = Vector3.zero; } isAnimating = false; }
+    
+    public void TakeDamage(int damage) 
+    {
+        // 権限チェック: HPを変更できるのはStateAuthorityのみ
+        if (Object != null && Object.IsValid && !HasStateAuthority)
+        {
+            // 自分に権限がない場合、ダメージ演出だけ表示して、値の変更はしない（Authority側で行われるのを待つ）
+            GameManager.instance.SpawnDamageText(transform.position, damage);
+            return;
+        }
+
+        GameManager.instance.SpawnDamageText(transform.position, damage);
+        health -= damage;
+        
+        if (unitView != null) unitView.RefreshDisplay();
+        
+        if (health <= 0) 
+        {
+            if (AbilityManager.instance != null && sourceData != null) AbilityManager.instance.ProcessAbilities(sourceData, EffectTrigger.ON_DEATH, this);
+            if (GameManager.instance != null) GameManager.instance.PlayDiscardAnimation(sourceData, isPlayerUnit);
+            
+            // Network Despawn
+            if (Object != null && Object.IsValid) Runner.Despawn(Object);
+            else Destroy(gameObject);
+        }
+        if (damage > 0) GameManager.instance.PlaySE(GameManager.instance.seDamage);
+    }
+
+    private System.Collections.IEnumerator TackleAnimation(Transform target, System.Action onHitLogic) 
+    { 
+        isAnimating = true; 
+        transform.SetParent(transform.root); 
+        Vector3 startPos = transform.position; 
+        Vector3 targetPos = target.position; 
+        Vector3 attackEndPos = Vector3.Lerp(startPos, targetPos, 0.7f); 
+        float duration = 0.15f; 
+        float elapsed = 0f; 
+        while (elapsed < duration) 
+        { 
+            transform.position = Vector3.Lerp(startPos, attackEndPos, elapsed / duration); 
+            elapsed += Time.deltaTime; 
+            yield return null; 
+        } 
+        transform.position = attackEndPos; 
+        onHitLogic?.Invoke(); 
+        
+        yield return new WaitForSeconds(0.05f); 
+        elapsed = 0f; 
+        while (elapsed < duration) 
+        { 
+            transform.position = Vector3.Lerp(attackEndPos, startPos, elapsed / duration); 
+            elapsed += Time.deltaTime; 
+            yield return null; 
+        } 
+        
+        if (originalParent != null) 
+        { 
+            transform.SetParent(originalParent); 
+            transform.localPosition = Vector3.zero; 
+        } 
+        isAnimating = false; 
+    }
+    
+    // ... (rest of methods) ...
     public void MoveToSlot(Transform targetSlot) { StartCoroutine(MoveAnimation(targetSlot)); }
     private System.Collections.IEnumerator MoveAnimation(Transform targetSlot) { isAnimating = true; transform.SetParent(transform.root); Vector3 startPos = transform.position; Vector3 endPos = targetSlot.position; float duration = 0.2f; float elapsed = 0f; while (elapsed < duration) { transform.position = Vector3.Lerp(startPos, endPos, elapsed / duration); elapsed += Time.deltaTime; yield return null; } transform.position = endPos; transform.SetParent(targetSlot); transform.localPosition = Vector3.zero; originalParent = targetSlot; ConsumeMove(); if (AbilityManager.instance != null && sourceData != null) { AbilityManager.instance.ProcessAbilities(sourceData, EffectTrigger.ON_MOVE, this); } isAnimating = false; }
     public void PlaySummonAnimation() { StartCoroutine(SummonAnimationCoroutine()); }

@@ -1,0 +1,30 @@
+{
+  "project_info": {
+    "project_number": "527813345380",
+    "firebase_url": "https://hakoniwacardbattle-default-rtdb.asia-southeast1.firebasedatabase.app",
+    "project_id": "hakoniwacardbattle",
+    "storage_bucket": "hakoniwacardbattle.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:527813345380:android:1cedc72a76647a1ac21f71",
+        "android_client_info": {
+          "package_name": "com.Omezi42.HakoniwaCardBattle"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyAfZF3Fq1k8K_iXJk3bEW2hi5-eHyfsc94"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}

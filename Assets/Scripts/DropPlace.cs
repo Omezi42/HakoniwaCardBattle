@@ -83,11 +83,17 @@ public class DropPlace : MonoBehaviour, IDropHandler, IPointerEnterHandler, IPoi
                     GameObject prefab = GameManager.instance.playerUnitPrefab;
                     if(prefab == null) prefab = GameManager.instance.unitPrefabForEnemy;
 
-                    GameObject newUnit = Instantiate(prefab, transform);
-                    newUnit.GetComponent<UnitView>().SetUnit(draggedCard.cardData);
-                    newUnit.GetComponent<UnitMover>().Initialize(draggedCard.cardData, true);
+                    GameObject newUnit = GameManager.instance.SpawnUnit(prefab, transform);
+                    UnitMover mover = newUnit.GetComponent<UnitMover>();
+                    if (mover != null)
+                    {
+                        mover.Initialize(draggedCard.cardData, true);
+                        // ★追加：スロットインデックスを設定（Mirroring用）
+                        mover.NetworkedSlotIndex = transform.GetSiblingIndex(); 
+                    }
                     
-                    AbilityManager.instance.ProcessAbilities(draggedCard.cardData, EffectTrigger.ON_SUMMON, newUnit.GetComponent<UnitMover>(), null);
+                    if (newUnit.GetComponent<UnitView>() != null) newUnit.GetComponent<UnitView>().SetUnit(draggedCard.cardData);
+                    AbilityManager.instance.ProcessAbilities(draggedCard.cardData, EffectTrigger.ON_SUMMON, mover, null);
                     
                     newUnit.GetComponent<UnitMover>().PlaySummonAnimation();
 

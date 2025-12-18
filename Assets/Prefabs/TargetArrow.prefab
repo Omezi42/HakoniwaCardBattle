@@ -10,6 +10,7 @@ GameObject:
   m_Component:
   - component: {fileID: 8325408956819276352}
   - component: {fileID: 826997376620586289}
+  - component: {fileID: 1204430831435820162}
   m_Layer: 5
   m_Name: TargetArrow
   m_TagString: Untagged
@@ -58,6 +59,24 @@ MonoBehaviour:
   labelText: {fileID: 8900859547005423118}
   rotationOffset: -90
   labelOffset: {x: 0, y: 50, z: 0}
+--- !u!114 &1204430831435820162
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 1157509992071379260}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: -1552182283, guid: e725a070cec140c4caffb81624c8c787, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: 
+  SortKey: 610764527
+  ObjectInterest: 1
+  Flags: 262145
+  NestedObjects: []
+  NetworkedBehaviours: []
+  ForceRemoteRenderTimeframe: 0
 --- !u!1 &2725774396027501431
 GameObject:
   m_ObjectHideFlags: 0

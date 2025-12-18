@@ -5,6 +5,7 @@ using System.Collections.Generic;
 using UnityEngine.SceneManagement;
 using UnityEngine.EventSystems;
 using System.Linq; 
+using Fusion; // [NEW] 
 
 public class GameManager : MonoBehaviour
 {
@@ -150,12 +151,20 @@ public class GameManager : MonoBehaviour
             enlargedCardView.enableHoverDetail = false; 
         }
 
+        bool isOnline = NetworkConnectionManager.instance != null && NetworkConnectionManager.instance.Runner != null && NetworkConnectionManager.instance.Runner.IsRunning;
+
         UpdateManaUI();
         UpdateEnemyManaUI();
         SetupBoard(GameObject.Find("PlayerBoard").transform, false);
         SetupBoard(enemyBoard, true);
         SetupDeck();
-        SetupEnemyDeck();
+        
+        // オフライン時のみ敵デッキ構築を行う
+        if (!isOnline)
+        {
+            SetupEnemyDeck();
+        }
+        
         UpdateBuildUI();
         SetupLeaderIcon();
         UpdateDeckGraveyardVisuals();
@@ -203,7 +212,14 @@ public class GameManager : MonoBehaviour
         }
         UpdateHandState();
         UpdateDeckGraveyardVisuals();
-        InitializeEnemyHand(3); 
+        
+        // オフライン時のみ敵手札を初期化
+        bool isOnline = NetworkConnectionManager.instance != null && NetworkConnectionManager.instance.Runner != null && NetworkConnectionManager.instance.Runner.IsRunning;
+        if (!isOnline)
+        {
+            InitializeEnemyHand(3); 
+        }
+        
         StartPlayerTurn();
     }
 
@@ -372,7 +388,7 @@ public class GameManager : MonoBehaviour
     #endregion
 
     #region Turn Management
-    void StartPlayerTurn() 
+    public void StartPlayerTurn() 
     { 
         StartCoroutine(PlayerTurnSequence()); 
     }
@@ -419,7 +435,33 @@ public class GameManager : MonoBehaviour
 
         isPlayerTurn = false; 
         yield return new WaitForSeconds(1.0f); 
-        StartEnemyTurn(); 
+
+        // オンライン時はAIターンを開始せず、ネットワーク同期を待つ
+        // GameStateControllerを通じてターン終了を通知
+        
+        // 変数定義の欠落を修正
+        bool isOnline = NetworkConnectionManager.instance != null && NetworkConnectionManager.instance.Runner != null && NetworkConnectionManager.instance.Runner.IsRunning;
+        
+        var gameState = FindObjectOfType<GameStateController>();
+        if (isOnline && gameState != null)
+        {
+            gameState.EndTurn();
+        }
+        else if (!isOnline)
+        {
+            StartEnemyTurn(); 
+        }
+    }
+
+    public void OnOnlineEnemyTurnStart()
+    {
+        // オンライン対戦での敵ターン開始処理
+        if (turnCutIn != null) turnCutIn.Show("ENEMY TURN", Color.red);
+        isPlayerTurn = false;
+        
+        // UI更新などが必要ならここで行う
+        // マナの回復などはGameStateControllerの切り替わりタイミングで両者で行うか、
+        // あるいはターン開始イベントで処理する
     }
 
     void StartEnemyTurn() 
@@ -1071,7 +1113,51 @@ public class GameManager : MonoBehaviour
         UnitMover unit = targetObj.GetComponentInParent<UnitMover>(); 
         Leader leader = targetObj.GetComponentInParent<Leader>(); 
         object target = (unit != null) ? (object)unit : leader;
-        if (target != null) { if (currentCastingCard.cardData.type == CardType.UNIT) SummonPlayerUnit(target); else ExecuteSpell(target); }
+        
+        if (target != null) 
+        { 
+            if (currentCastingCard.cardData.type == CardType.UNIT) 
+            {
+                SummonPlayerUnit(target); 
+            }
+            else 
+            {
+                // ★Network対応: スペル発動
+                NetworkRunner runner = NetworkConnectionManager.instance.Runner;
+                if (runner != null && runner.IsRunning)
+                {
+                    // オンライン: RPC送信
+                    var gameState = FindObjectOfType<GameStateController>();
+                    if (gameState != null)
+                    {
+                         int seed = UnityEngine.Random.Range(0, 999999);
+                         NetworkId targetId = default;
+                         bool isEnemyLeader = false;
+                         
+                         if (unit != null && unit.Object != null) targetId = unit.Object.Id;
+                         else if (leader != null) 
+                         {
+                             // LeaderにはNetworkIdがないため、EnemyLeaderフラグで識別
+                             // プレイヤーがターゲットできるのは「敵リーダー」のみのはず (回復などで味方リーダー選ぶなら要拡張)
+                             // CheckTargetValidityで弾かれている前提だが、念のため
+                             // 自分(Player)から見て、EnemyInfoかどうか
+                             if (leader.transform.parent.name == "EnemyBoard" || leader.name == "EnemyInfo") isEnemyLeader = true;
+                         }
+
+                         gameState.RPC_CastSpell(currentCastingCard.cardData.scriptKey, seed, targetId, isEnemyLeader);
+                         
+                         // 手札消費 (ローカルのみ先行処理し、RPC側でアニメーション？いや、RPC側でアニメーションする)
+                         // ただしcurrentCastingCardはDestroyする必要がある
+                         Destroy(currentCastingCard.gameObject);
+                         CleanupSpellMode();
+                         return;
+                    }
+                }
+                
+                // オフライン
+                ExecuteSpell(target); 
+            }
+        }
     }
 
     void SummonPlayerUnit(object manualTarget)
@@ -1085,9 +1171,15 @@ public class GameManager : MonoBehaviour
             if (playerBoard != null) { foreach(Transform slot in playerBoard) { if (slot.childCount == 0) { targetSlot = slot; break; } } }
         }
         if (targetSlot == null || targetSlot.childCount > 0) { Debug.Log("空きスロットがありません"); CancelSpellCast(); return; }
-        GameObject newUnit = Instantiate(playerUnitPrefab != null ? playerUnitPrefab : unitPrefabForEnemy, targetSlot);
+        GameObject newUnit = SpawnUnit(playerUnitPrefab != null ? playerUnitPrefab : unitPrefabForEnemy, targetSlot);
         UnitView view = newUnit.GetComponent<UnitView>(); if (view != null) view.SetUnit(card);
-        UnitMover mover = newUnit.GetComponent<UnitMover>(); if (mover != null) mover.Initialize(card, true);
+        UnitMover mover = newUnit.GetComponent<UnitMover>(); 
+        if (mover != null) 
+        {
+            mover.Initialize(card, true);
+            // ★追加：スロットインデックスを設定（Mirroring用）
+            mover.NetworkedSlotIndex = targetSlot.GetSiblingIndex(); 
+        }
         AbilityManager.instance.ProcessAbilities(card, EffectTrigger.ON_SUMMON, mover, manualTarget);
         mover.PlaySummonAnimation();
         if (BattleLogManager.instance != null) BattleLogManager.instance.AddLog($" {card.cardName} を召喚した", true, card);
@@ -1658,6 +1750,31 @@ public class GameManager : MonoBehaviour
         return null; 
     }
     #endregion
+
+    // ■ [NEW] ユニット生成の共通ヘルパー (Network/Local両対応)
+    public GameObject SpawnUnit(GameObject prefab, Transform parent)
+    {
+        var runner = NetworkConnectionManager.instance != null ? NetworkConnectionManager.instance.Runner : null;
+        
+        // オンラインかつRunnerが有効で、PrefabにNetworkObjectがある場合
+        // かつ、SharedモードではローカルプレイヤーがAuthorityを持つのでSpawn可能
+        if (runner != null && runner.IsRunning && prefab.GetComponent<NetworkObject>() != null)
+        {
+            // Fusion Spawn
+            var netObj = runner.Spawn(prefab, Vector3.zero, Quaternion.identity, runner.LocalPlayer);
+            
+            // 親設定 (ローカル対戦ロジック互換のため)
+            netObj.transform.SetParent(parent, false);
+            netObj.transform.localPosition = Vector3.zero;
+            
+            return netObj.gameObject;
+        }
+        else
+        {
+            // オフライン (Instantiate)
+            return Instantiate(prefab, parent);
+        }
+    }
 }
 
 [System.Serializable]

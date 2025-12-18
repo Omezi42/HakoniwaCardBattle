@@ -12,6 +12,7 @@ GameObject:
   - component: {fileID: 251743572637887668}
   - component: {fileID: 1410285968747074880}
   - component: {fileID: 1480091093174799342}
+  - component: {fileID: -5659440994587032159}
   m_Layer: 5
   m_Name: FigurePrefab
   m_TagString: Untagged
@@ -92,6 +93,24 @@ MonoBehaviour:
   m_FillOrigin: 0
   m_UseSpriteMesh: 0
   m_PixelsPerUnitMultiplier: 1
+--- !u!114 &-5659440994587032159
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 1076929832340740651}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: -1552182283, guid: e725a070cec140c4caffb81624c8c787, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: 
+  SortKey: 142985903
+  ObjectInterest: 1
+  Flags: 262145
+  NestedObjects: []
+  NetworkedBehaviours: []
+  ForceRemoteRenderTimeframe: 0
 --- !u!1 &3088532865993920328
 GameObject:
   m_ObjectHideFlags: 0
