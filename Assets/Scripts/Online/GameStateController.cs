@@ -39,30 +39,10 @@ public class GameStateController : NetworkBehaviour
         CheckTurnUpdate();
     }
 
-    private void StartGame()
-    {
-        IsGameStarted = true;
-        TurnCount = 1;
-        
-        // ホスト(自分)を先行にする
-        // SharedModeのInputAuthorityはNoneになるため、Runner.LocalPlayerを使う
-        ActivePlayer = Runner.LocalPlayer; 
-        
-        Debug.Log($"[GameState] Game Started! First Player: {ActivePlayer}");
-    }
-
+    // Old methods removed
+    
     private PlayerRef _lastActivePlayer = PlayerRef.None;
 
-    void CheckTurnUpdate()
-    {
-        if (!IsGameStarted) return;
-
-        if (_lastActivePlayer != ActivePlayer)
-        {
-            _lastActivePlayer = ActivePlayer;
-            OnTurnChanged();
-        }
-    }
 
     void OnTurnChanged()
     {
@@ -177,5 +157,110 @@ public class GameStateController : NetworkBehaviour
             BattleLogManager.instance.AddLog($"{actor}は {card.cardName} を唱えた", isMyAction, card);
         }
         GameManager.instance.PlaySE(GameManager.instance.seSummon);
+    }
+    // マリガン完了フラグ
+    [Networked] public NetworkBool IsP1MulliganDone { get; set; }
+    [Networked] public NetworkBool IsP2MulliganDone { get; set; }
+
+    [Rpc(RpcSources.All, RpcTargets.StateAuthority)]
+    public void RPC_FinishMulligan(PlayerRef player)
+    {
+        // プレイヤーID順で判定 (ホストがP1とは限らないが、通常ID小=P1)
+        var sorted = Runner.ActivePlayers.OrderBy(p => p.PlayerId).ToList();
+        if (sorted.Count > 0 && sorted[0] == player) IsP1MulliganDone = true;
+        else if (sorted.Count > 1 && sorted[1] == player) IsP2MulliganDone = true;
+        
+        Debug.Log($"[GameState] Mulligan Done: {player}. P1:{IsP1MulliganDone} P2:{IsP2MulliganDone}");
+    }
+
+    // ゲーム開始時: マリガン待機
+    private void StartGame()
+    {
+        IsGameStarted = true; // ゲームセッション開始
+        TurnCount = 0; // まだターンは始めない
+        
+        // UI側でマリガン開始
+        // GameManager側で接続数検知してマリガンUI出す想定
+    }
+
+    void CheckTurnUpdate()
+    {
+        if (!IsGameStarted) return;
+
+        // マリガン完了待ち
+        if (TurnCount == 0)
+        {
+            if (Object.HasStateAuthority)
+            {
+                if (IsP1MulliganDone && IsP2MulliganDone)
+                {
+                    TurnCount = 1;
+                    ActivePlayer = Runner.ActivePlayers.OrderBy(p => p.PlayerId).First();
+                    Debug.Log($"[GameState] All Mulligan Done! Start Turn 1. Active: {ActivePlayer}");
+                }
+            }
+            return;
+        }
+
+        if (_lastActivePlayer != ActivePlayer)
+        {
+            _lastActivePlayer = ActivePlayer;
+            OnTurnChanged();
+        }
+    }
+
+    // Cleaned up comment
+
+
+    // ★追加: 強制ドローRPC (相手にドローさせる効果用)
+    // ★追加: 強制ドローRPC (相手にドローさせる効果用)
+    [Rpc(RpcSources.All, RpcTargets.All)]
+    public void RPC_ForceDraw(PlayerRef targetPlayer, int count)
+    {
+        if (Runner.LocalPlayer == targetPlayer)
+        {
+            if (GameManager.instance != null)
+            {
+                Debug.Log($"[GameState] Force Draw {count} cards via RPC.");
+                GameManager.instance.DealCards(count);
+            }
+        }
+        else
+        {
+            // 他人のドロー: 敵の手札が増える演出を行う
+            if (GameManager.instance != null)
+            {
+                 // 自分がObserverで、TargetがEnemyなら「EnemyDrawCard」を呼ぶ
+                 // ターゲットが自分でないなら、それは「敵」とみなして良い（2人対戦前提）
+                 GameManager.instance.EnemyDrawCard(count);
+            }
+        }
+    }
+
+    // ★追加: 建築同期用RPC
+    [Rpc(RpcSources.All, RpcTargets.All)]
+    public void RPC_ConstructBuild(string cardId, bool isPlayerOwner, RpcInfo info = default)
+    {
+        // 発動者が isPlayerOwner = true で送ってくる。
+        // 受信側が「自分」なら isPlayerOwnerそのまま。
+        // 受信側が「相手」なら、論理反転させる必要がある？
+        
+        // いや、RPCの引数は「発動者視点」で送るとややこしい。
+        // ここでは「絶対的なOwnership」を送るべきだが、P1/P2の概念がないと難しい。
+        
+        // なので、Senderと比較する。
+        bool isMine = (Runner.LocalPlayer == info.Source); // RPCを送ったのが自分ならTrue
+        
+        // 自分が送った場合 -> isMine=true. BuildConstruction内でローカル処理済みなら二重になる？
+        // GameManager側で「RPCから呼ばれたら追加」にするか、
+        // 「ローカル実行時にRPCを送る」なら、自分はスキップする。
+        
+        if (isMine) return; // 送信元は既に処理済み(投機実行)としているならリターン
+
+        if (GameManager.instance != null)
+        {
+            // 相手が建てた = isPlayer=falseとして処理
+            GameManager.instance.ConstructBuildByEffect(cardId, false);
+        }
     }
 }

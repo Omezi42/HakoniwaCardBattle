@@ -168,6 +168,17 @@ public class NetworkConnectionManager : MonoBehaviour, INetworkRunnerCallbacks
         // Explicit Object Provider
         var objProvider = _runnerInstance.GetComponent<NetworkObjectProviderDefault>();
 
+        // AppSettingsでRegionを固定 (ParrelSyncなどでのリージョン不一致を防ぐ)
+        // 既存の設定をベースにするため、PhotonAppSettings.Global.AppSettingsからIDを取得
+        var globalSettings = Fusion.Photon.Realtime.PhotonAppSettings.Global.AppSettings;
+        
+        var customAppSettings = new Fusion.Photon.Realtime.FusionAppSettings
+        {
+            AppIdFusion = globalSettings.AppIdFusion,
+            FixedRegion = "jp",
+            UseNameServer = true
+        };
+
         var result = await _runner.StartGame(new StartGameArgs()
         {
             GameMode = mode, 
@@ -175,7 +186,8 @@ public class NetworkConnectionManager : MonoBehaviour, INetworkRunnerCallbacks
             Scene = SceneRef.FromIndex(sceneIndex), 
             PlayerCount = 2, 
             SceneManager = sceneManager,
-            ObjectProvider = objProvider
+            ObjectProvider = objProvider,
+            CustomPhotonAppSettings = customAppSettings
         });
 
         if (result.Ok)
@@ -201,24 +213,21 @@ public class NetworkConnectionManager : MonoBehaviour, INetworkRunnerCallbacks
 
     private async void CheckAndSpawnGameState()
     {
-        await Task.Delay(500); // 接続待ち
+        await Task.Delay(1000); // 接続・同期待ち時間を少し延長
         if (_runner == null || !_runner.IsRunning) return;
 
         // すでに存在するかチェック
-        // (注: FindObjectOfTypeはローカルのみ。NetworkObjectの同期遅延で被るリスクはあるが、
-        //  SharedModeのプロトタイプとしては「見つからなければ作る」で進める)
         var existingState = FindObjectOfType<GameStateController>();
-        if (existingState == null)
+        if (existingState != null) return;
+        
+        // SharedModeでの重複生成防止: 最もIDが若いプレイヤー(リーダー)のみが生成を試みる
+        // ActivePlayersは全員持っているはず
+        var sortedPlayers = new List<PlayerRef>(_runner.ActivePlayers);
+        sortedPlayers.Sort((a, b) => a.PlayerId.CompareTo(b.PlayerId));
+
+        if (sortedPlayers.Count > 0 && sortedPlayers[0] == _runner.LocalPlayer)
         {
-             // 自分がセッション作成者(または部屋に誰もいない)と仮定してスポーンを試みる
-             // 本来は playerlist を見て判断すべきだが、SharedModeでの権限管理は複雑なので
-             // ここでは「生成は誰でもできる（早い者勝ち）」というFusionの性質を利用。
-             // NetworkObjectPrefab に GameStateController をアタッチしたPrefabが必要だが、
-             // 動的生成も可能。ただしPrefab登録が必要。
-             
-             // 簡易策: 空のGameObjectにAddComponentしてSpawnはできない(Prefab必須)。
-             // なので、Resourcesからロードするか、InspectorでPrefab指定が必要。
-             // ここでは「InspectorにPrefabを設定」する方式をとる。
+             Debug.Log($"I am the Leader ({_runner.LocalPlayer}). Spawning GameStateController.");
              if (gameStatePrefab != null)
              {
                  _runner.Spawn(gameStatePrefab, Vector3.zero, Quaternion.identity);

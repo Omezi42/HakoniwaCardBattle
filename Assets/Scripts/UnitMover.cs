@@ -34,31 +34,40 @@ public class UnitMover : NetworkBehaviour, IBeginDragHandler, IDragHandler, IEnd
         set { if (Object != null && Object.IsValid) _netHealth = value; else _localHealth = value; }
     }
     
-    [Fusion.Networked] private string _netScriptKey { get; set; }
-    private string _lastScriptKey;
+    [Fusion.Networked] private string _netCardId { get; set; } // Renamed from _netScriptKey
+    private string _lastCardId;
 
-    public override void Render()
+    // ChangeDetector used in Render below
+
+    private void OnCardIdSync()
     {
-        base.Render();
-        if (_netScriptKey != _lastScriptKey)
+        if (string.IsNullOrEmpty(_netCardId)) return;
+        // すでに初期化済みならスキップ(必要に応じて)
+        if (sourceData != null && sourceData.id == _netCardId) return;  
+
+        CardData data = null;
+        if (PlayerDataManager.instance != null)
         {
-            _lastScriptKey = _netScriptKey;
-            OnScriptKeySync();
+            data = PlayerDataManager.instance.GetCardById(_netCardId);
+        }
+        else
+        {
+            // Fallback
+             data = Resources.Load<CardData>("Cards/" + _netCardId);
+        }
+
+        // Proxy(相手)として初期化
+        if (data != null) 
+        {
+            Initialize(data, false);
+        }
+        else 
+        {
+            Debug.LogError($"[UnitMover] Failed to load CardData for ID: {_netCardId}");
         }
     }
-
-    private void OnScriptKeySync()
-    {
-        if (string.IsNullOrEmpty(_netScriptKey)) return;
-        // すでに初期化済みならスキップ(必要に応じて)
-        if (sourceData != null) return;  
-
-        CardData data = Resources.Load<CardData>("Cards/" + _netScriptKey);
-        // Proxy(相手)として初期化
-        if (data != null) Initialize(data, false);
-    }
     
-    public string scriptKey;
+    public string scriptKey; // Deprecated but kept for compatibility if needed locally
     public int maxHealth;
     public bool hasHaste = false; 
     public bool hasQuick = false;
@@ -86,51 +95,91 @@ public class UnitMover : NetworkBehaviour, IBeginDragHandler, IDragHandler, IEnd
         if (canvasGroup == null) canvasGroup = gameObject.AddComponent<CanvasGroup>();
     }
 
-    [Networked] public int NetworkedSlotIndex { get; set; } // ★追加：スロット同期用
+    [Networked] public int NetworkedSlotX { get; set; } = -1;
+    [Networked] public int NetworkedSlotY { get; set; } = -1;
+
+    private ChangeDetector _changes;
 
     public override void Spawned()
     {
+        _changes = GetChangeDetector(ChangeDetector.Source.SimulationState);
+
         // ネットワークオブジェクトが生成された時の初期化
         if (HasStateAuthority)
         {
             // ホスト(生成者)側:
-            if (!string.IsNullOrEmpty(scriptKey))
+            if (sourceData != null)
             {
-                _netScriptKey = scriptKey;
+                _netCardId = sourceData.id;
                 _netAttackPower = attackPower;
                 _netHealth = health;
             }
-        
-            // Spawn直後にセットされたSlotIndexを元に、親が正しく設定されているか確認
-            // (通常はSpawn時に親を設定するが、念のため)
         }
         else
         {
             // クライアント(受信/Proxy)側: card data sync
-            if (!string.IsNullOrEmpty(_netScriptKey))
+            if (!string.IsNullOrEmpty(_netCardId))
             {
-                CardData data = Resources.Load<CardData>("Cards/" + _netScriptKey);
-                // Proxyなので isPlayer=false (敵)
-                if (data != null) Initialize(data, false);
+                OnCardIdSync();
             }
 
-            // ★追加：親スロットの同期 (Mirroring)
-            // 敵が Slot 1 に出した -> 自分にとっては EnemyBoard の Slot 1 (物理的には同じ位置の場合と、逆の場合がある)
-            // ここでは「相手の Board (EnemyBoard) の同じインデックス」に配置する
             SyncParentSlot();
         }
     }
+
+    public override void Render()
+    {
+        foreach (var change in _changes.DetectChanges(this))
+        {
+            switch (change)
+            {
+                case nameof(_netCardId):
+                    OnCardIdSync();
+                    break;
+                case nameof(NetworkedSlotX):
+                case nameof(NetworkedSlotY):
+                    SyncParentSlot();
+                    break;
+                case nameof(_netAttackPower):
+                case nameof(_netHealth):
+                    if (unitView != null) unitView.RefreshDisplay();
+                    break;
+            }
+        }
+    }
     
-    // ★追加: スロット同期処理
+    // ★修正: スロット同期処理 (権限ベースで決定)
     void SyncParentSlot()
     {
         if (GameManager.instance == null) return;
-        Transform enemyBoard = GameObject.Find("EnemyBoard")?.transform;
-        if (enemyBoard != null && NetworkedSlotIndex >= 0 && NetworkedSlotIndex < enemyBoard.childCount)
+        
+        // HasStateAuthority (自分が生成した) -> PlayerBoard
+        // !HasStateAuthority (他人が生成した) -> EnemyBoard
+        bool isMine = (Object != null && Object.IsValid) ? Object.HasStateAuthority : true;
+        
+        Transform targetBoard = isMine ? GameObject.Find("PlayerBoard")?.transform : GameObject.Find("EnemyBoard")?.transform;
+
+        // 座標(SlotX, SlotY)を使って正しいスロットを探す
+        if (targetBoard != null && NetworkedSlotX != -1 && NetworkedSlotY != -1)
         {
-            Transform slot = enemyBoard.GetChild(NetworkedSlotIndex);
-            transform.SetParent(slot, false);
-            transform.localPosition = Vector3.zero;
+            foreach(Transform slot in targetBoard)
+            {
+                SlotInfo info = slot.GetComponent<SlotInfo>();
+                if (info != null && info.x == NetworkedSlotX && info.y == NetworkedSlotY)
+                {
+                    // すでに正しい親にいるなら何もしない
+                    if (transform.parent == slot) return;
+
+                    transform.SetParent(slot, false);
+                    transform.localPosition = Vector3.zero;
+                    
+                    // ★重要: アニメーション復帰位置も更新
+                    originalParent = slot; 
+                    return;
+                }
+            }
+            // 見つからない場合 (Fallback)
+             Debug.LogWarning($"Target Slot ({NetworkedSlotX}, {NetworkedSlotY}) not found on Board ({targetBoard.name}).");
         }
     }
 
@@ -138,13 +187,51 @@ public class UnitMover : NetworkBehaviour, IBeginDragHandler, IDragHandler, IEnd
 
     public void Initialize(CardData data, bool isPlayer)
     {
+        isPlayerUnit = isPlayer; // 先に設定
+        
         attackPower = data.attack;
         health = data.health;
         sourceData = data; 
         maxHealth = data.health;
-        scriptKey = data.scriptKey;
-        isPlayerUnit = isPlayer;
+        // scriptKey = data.scriptKey; // Deprecated
+        
+        // 初期親設定（まだSyncParentSlotが走っていない場合用）
         originalParent = transform.parent;
+
+        // ★追加: Host側ならNetworked変数を即時更新して同期させる
+        if (Object != null && Object.HasStateAuthority)
+        {
+             _netCardId = data.id; // Use ID
+             _netAttackPower = data.attack;
+             _netHealth = data.health;
+             
+             // 初期位置もNetworked変数に入れる
+             SlotInfo slotInfo = transform.parent?.GetComponent<SlotInfo>();
+             if (slotInfo != null)
+             {
+                 NetworkedSlotX = slotInfo.x;
+                 NetworkedSlotY = slotInfo.y;
+             }
+        }
+
+        // ★修正: Visualsの強制更新 (Guest側で豆腐になるのを防ぐ)
+        if (unitView != null) 
+        {
+            unitView.SetUnit(data);
+            unitView.RefreshDisplay();
+            unitView.RefreshStatusIcons(hasTaunt, hasStealth); // Status Iconも更新
+        }
+        else
+        {
+            // UnitViewがない場合は取得して実行
+            unitView = GetComponent<UnitView>();
+            if (unitView != null)
+            {
+                unitView.SetUnit(data);
+                unitView.RefreshDisplay();
+                unitView.RefreshStatusIcons(hasTaunt, hasStealth);
+            }
+        }
 
         foreach(var ability in data.abilities)
         {
@@ -164,12 +251,12 @@ public class UnitMover : NetworkBehaviour, IBeginDragHandler, IDragHandler, IEnd
             if (hasHaste)
             {
                 canAttack = true; canMove = true;
-                GetComponent<UnityEngine.UI.Image>().color = Color.white;
+                if(GetComponent<UnityEngine.UI.Image>()) GetComponent<UnityEngine.UI.Image>().color = Color.white;
             }
             else
             {
                 canAttack = false; canMove = false;
-                GetComponent<UnityEngine.UI.Image>().color = Color.gray;
+                if(GetComponent<UnityEngine.UI.Image>()) GetComponent<UnityEngine.UI.Image>().color = Color.gray;
             }
         }
         else
@@ -186,7 +273,8 @@ public class UnitMover : NetworkBehaviour, IBeginDragHandler, IDragHandler, IEnd
                 unitView.iconImage.transform.localScale = scale;
             }
         }
-
+        
+        // 再度更新(念のため)
         if (unitView != null) unitView.RefreshStatusIcons(hasTaunt, hasStealth);
     }
 
@@ -395,7 +483,10 @@ public class UnitMover : NetworkBehaviour, IBeginDragHandler, IDragHandler, IEnd
         // 権限チェック: HPを変更できるのはStateAuthorityのみ
         if (Object != null && Object.IsValid && !HasStateAuthority)
         {
-            // 自分に権限がない場合、ダメージ演出だけ表示して、値の変更はしない（Authority側で行われるのを待つ）
+            // 自分に権限がない場合、RPCでAuthorityに依頼する
+            RPC_ApplyDamage(damage);
+            
+            // 演出だけ先行して見せる(HPは変わらない)
             GameManager.instance.SpawnDamageText(transform.position, damage);
             return;
         }
@@ -415,6 +506,12 @@ public class UnitMover : NetworkBehaviour, IBeginDragHandler, IDragHandler, IEnd
             else Destroy(gameObject);
         }
         if (damage > 0) GameManager.instance.PlaySE(GameManager.instance.seDamage);
+    }
+
+    [Rpc(RpcSources.All, RpcTargets.StateAuthority)]
+    public void RPC_ApplyDamage(int damage)
+    {
+        TakeDamage(damage);
     }
 
     private System.Collections.IEnumerator TackleAnimation(Transform target, System.Action onHitLogic) 
@@ -454,7 +551,43 @@ public class UnitMover : NetworkBehaviour, IBeginDragHandler, IDragHandler, IEnd
     
     // ... (rest of methods) ...
     public void MoveToSlot(Transform targetSlot) { StartCoroutine(MoveAnimation(targetSlot)); }
-    private System.Collections.IEnumerator MoveAnimation(Transform targetSlot) { isAnimating = true; transform.SetParent(transform.root); Vector3 startPos = transform.position; Vector3 endPos = targetSlot.position; float duration = 0.2f; float elapsed = 0f; while (elapsed < duration) { transform.position = Vector3.Lerp(startPos, endPos, elapsed / duration); elapsed += Time.deltaTime; yield return null; } transform.position = endPos; transform.SetParent(targetSlot); transform.localPosition = Vector3.zero; originalParent = targetSlot; ConsumeMove(); if (AbilityManager.instance != null && sourceData != null) { AbilityManager.instance.ProcessAbilities(sourceData, EffectTrigger.ON_MOVE, this); } isAnimating = false; }
+    private System.Collections.IEnumerator MoveAnimation(Transform targetSlot) 
+    { 
+        isAnimating = true; 
+        transform.SetParent(transform.root); 
+        Vector3 startPos = transform.position; 
+        Vector3 endPos = targetSlot.position; 
+        float duration = 0.2f; 
+        float elapsed = 0f; 
+        while (elapsed < duration) 
+        { 
+            transform.position = Vector3.Lerp(startPos, endPos, elapsed / duration); 
+            elapsed += Time.deltaTime; 
+            yield return null; 
+        } 
+        transform.position = endPos; 
+        transform.SetParent(targetSlot); 
+        transform.localPosition = Vector3.zero; 
+        originalParent = targetSlot; 
+        
+        // ★Network Update
+        if (Object != null && Object.IsValid && HasStateAuthority)
+        {
+            SlotInfo info = targetSlot.GetComponent<SlotInfo>();
+            if (info != null)
+            {
+                NetworkedSlotX = info.x;
+                NetworkedSlotY = info.y;
+            }
+        }
+
+        ConsumeMove(); 
+        if (AbilityManager.instance != null && sourceData != null) 
+        { 
+            AbilityManager.instance.ProcessAbilities(sourceData, EffectTrigger.ON_MOVE, this); 
+        } 
+        isAnimating = false; 
+    }
     public void PlaySummonAnimation() { StartCoroutine(SummonAnimationCoroutine()); }
     private System.Collections.IEnumerator SummonAnimationCoroutine() { isAnimating = true; Vector3 originalScale = transform.localScale; Vector3 landPos = transform.localPosition; Vector3 startPos = landPos + new Vector3(0, 50f, 0); transform.localPosition = startPos; transform.localScale = originalScale * 1.2f; if(canvasGroup) canvasGroup.alpha = 0f; float duration = 0.25f; float elapsed = 0f; while (elapsed < duration) { float t = elapsed / duration; t = t * t * (3f - 2f * t); transform.localPosition = Vector3.Lerp(startPos, landPos, t); transform.localScale = Vector3.Lerp(originalScale * 1.2f, originalScale, t); if(canvasGroup) canvasGroup.alpha = Mathf.Lerp(0f, 1f, t * 2); elapsed += Time.deltaTime; yield return null; } transform.localPosition = landPos; transform.localScale = originalScale; if(canvasGroup) canvasGroup.alpha = 1f; isAnimating = false; }
     public void Heal(int amount) { health += amount; if (health > maxHealth) health = maxHealth; if (unitView != null) unitView.RefreshDisplay(); }

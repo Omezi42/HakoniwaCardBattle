@@ -321,6 +321,26 @@ public class AbilityManager : MonoBehaviour
             if (target is Leader leader) drawForPlayer = leader.isPlayer;
             else if (target is UnitMover unit) drawForPlayer = unit.isPlayerUnit;
         }
+        
+        // オンライン対応
+        var gameState = FindObjectOfType<GameStateController>();
+        if (gameState != null && gameState.Object.IsValid)
+        {
+             // 相手に引かせる場合 (drawForPlayer == false)
+             if (!drawForPlayer)
+             {
+                  // 相手PlayerRefを探す
+                  var myRef = gameState.Runner.LocalPlayer;
+                  Fusion.PlayerRef enemyRef = Fusion.PlayerRef.None;
+                  foreach(var p in gameState.Runner.ActivePlayers) { if (p != myRef) { enemyRef = p; break; } }
+                  
+                  if (enemyRef != Fusion.PlayerRef.None)
+                  {
+                      gameState.RPC_ForceDraw(enemyRef, value);
+                      return;
+                  }
+             }
+        }
 
         if (drawForPlayer) GameManager.instance.DealCards(value);
         else GameManager.instance.EnemyDrawCard(value);

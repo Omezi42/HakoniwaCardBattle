@@ -215,12 +215,21 @@ public class GameManager : MonoBehaviour
         
         // オフライン時のみ敵手札を初期化
         bool isOnline = NetworkConnectionManager.instance != null && NetworkConnectionManager.instance.Runner != null && NetworkConnectionManager.instance.Runner.IsRunning;
-        if (!isOnline)
-        {
-            InitializeEnemyHand(3); 
-        }
         
-        StartPlayerTurn();
+        if (isOnline)
+        {
+            // オンライン: Mulligan完了を通知
+             var gameState = FindObjectOfType<GameStateController>();
+             if (gameState != null) gameState.RPC_FinishMulligan(gameState.Runner.LocalPlayer);
+             
+             // ターン開始はGameStateControllerが管理するため、ここではStartPlayerTurnを呼ばない
+        }
+        else
+        {
+            // オフライン: 即座にゲーム開始
+            InitializeEnemyHand(3); 
+            StartPlayerTurn();
+        }
     }
 
     // ★修正：手札に戻す処理（確実にカードを生成する）
@@ -1144,7 +1153,7 @@ public class GameManager : MonoBehaviour
                              if (leader.transform.parent.name == "EnemyBoard" || leader.name == "EnemyInfo") isEnemyLeader = true;
                          }
 
-                         gameState.RPC_CastSpell(currentCastingCard.cardData.scriptKey, seed, targetId, isEnemyLeader);
+                         gameState.RPC_CastSpell(currentCastingCard.cardData.id, seed, targetId, isEnemyLeader);
                          
                          // 手札消費 (ローカルのみ先行処理し、RPC側でアニメーション？いや、RPC側でアニメーションする)
                          // ただしcurrentCastingCardはDestroyする必要がある
@@ -1177,8 +1186,13 @@ public class GameManager : MonoBehaviour
         if (mover != null) 
         {
             mover.Initialize(card, true);
-            // ★追加：スロットインデックスを設定（Mirroring用）
-            mover.NetworkedSlotIndex = targetSlot.GetSiblingIndex(); 
+            // ★追加：スロット座標を設定（Mirroring用）
+            SlotInfo info = targetSlot.GetComponent<SlotInfo>();
+            if (info != null)
+            {
+                mover.NetworkedSlotX = info.x;
+                mover.NetworkedSlotY = info.y;
+            } 
         }
         AbilityManager.instance.ProcessAbilities(card, EffectTrigger.ON_SUMMON, mover, manualTarget);
         mover.PlaySummonAnimation();
@@ -1223,16 +1237,7 @@ public class GameManager : MonoBehaviour
         return info ? info.y : -1; 
     }
 
-    void ShuffleDeck() 
-    { 
-        for (int i = 0; i < mainDeck.Count; i++) 
-        { 
-            CardData temp = mainDeck[i]; 
-            int r = Random.Range(i, mainDeck.Count); 
-            mainDeck[i] = mainDeck[r]; 
-            mainDeck[r] = temp; 
-        } 
-    }
+
 
     public bool HasSelectTargetAbility(CardData card) 
     { 
@@ -1295,7 +1300,31 @@ public class GameManager : MonoBehaviour
             Debug.Log(data.cardName + " の建築を開始します..."); 
             PlaySE(seSummon); 
             UpdateBuildUI(); 
+
+            // ★追加: RPCを送信
+            var gameState = FindObjectOfType<GameStateController>();
+            if (gameState != null && gameState.Object != null)
+            {
+                gameState.RPC_ConstructBuild(data.id, true);
+            }
         } 
+    }
+
+    // ★追加: RPC受信用の建築処理
+    public void ConstructBuildByEffect(string cardId, bool isPlayer)
+    {
+        // PlayerDataManagerからカード取得
+        CardData data = PlayerDataManager.instance.GetCardById(cardId);
+        if (data == null)
+        {
+             // Fallback
+             data = Resources.Load<CardData>("Cards/" + cardId);
+        }
+        if (data == null) return;
+
+        if (activeBuilds == null) activeBuilds = new List<ActiveBuild>();
+        activeBuilds.Add(new ActiveBuild(data, isPlayer));
+        UpdateBuildUI();
     }
 
     public bool HasActiveBuild(bool isPlayer) 
@@ -1633,7 +1662,22 @@ public class GameManager : MonoBehaviour
                 } 
             } 
         } 
-        ShuffleDeck(); 
+        ShuffleDeck();
+    }
+
+    public void ShuffleDeck()
+    {
+        // System.Randomを使う (UnityEngine.RandomはPhoton/Fusionで同期される可能性があるため)
+        // Guidを使って、クライアントごとにユニークなシードを生成する
+        var rng = new System.Random(System.Guid.NewGuid().GetHashCode());
+
+        for (int i = 0; i < mainDeck.Count; i++)
+        {
+            CardData temp = mainDeck[i];
+            int r = rng.Next(i, mainDeck.Count);
+            mainDeck[i] = mainDeck[r];
+            mainDeck[r] = temp;
+        }
     }
 
     void DecreaseBuildDuration(bool isPlayer) 

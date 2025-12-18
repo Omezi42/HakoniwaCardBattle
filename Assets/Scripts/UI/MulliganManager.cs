@@ -2,6 +2,7 @@ using UnityEngine;
 using UnityEngine.UI;
 using TMPro;
 using System.Collections.Generic;
+using Fusion; // [NEW]
 
 public class MulliganManager : MonoBehaviour
 {
@@ -38,6 +39,10 @@ public class MulliganManager : MonoBehaviour
             GameObject obj = Instantiate(mulliganCardPrefab, cardContainer);
             obj.transform.localScale = Vector3.one; // スケールリセット
             
+            // ★修正: UI用カードがNetworkObjectを持っている場合、Destroy時にネットワーク同期されてしまう恐れがあるため削除
+            var netObj = obj.GetComponent<NetworkObject>();
+            if (netObj != null) Destroy(netObj);
+
             // ドラッグ機能を削除（クリックの邪魔になるため）
             var drag = obj.GetComponent<Draggable>();
             if (drag != null) Destroy(drag);

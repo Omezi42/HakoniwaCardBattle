@@ -88,8 +88,13 @@ public class DropPlace : MonoBehaviour, IDropHandler, IPointerEnterHandler, IPoi
                     if (mover != null)
                     {
                         mover.Initialize(draggedCard.cardData, true);
-                        // ★追加：スロットインデックスを設定（Mirroring用）
-                        mover.NetworkedSlotIndex = transform.GetSiblingIndex(); 
+                        // ★追加：スロット座標を設定（Mirroring用）
+                        SlotInfo info = transform.GetComponent<SlotInfo>();
+                        if (info != null)
+                        {
+                            mover.NetworkedSlotX = info.x;
+                            mover.NetworkedSlotY = info.y;
+                        } 
                     }
                     
                     if (newUnit.GetComponent<UnitView>() != null) newUnit.GetComponent<UnitView>().SetUnit(draggedCard.cardData);
