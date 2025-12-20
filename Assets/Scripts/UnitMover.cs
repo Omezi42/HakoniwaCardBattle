@@ -13,7 +13,23 @@ public class UnitMover : NetworkBehaviour, IBeginDragHandler, IDragHandler, IEnd
     public bool canAttack = false;
     public bool canMove = false;
     public bool hasTaunt = false;
-    public bool hasStealth = false;
+    [Networked] private NetworkBool _netHasStealth { get; set; }
+    private bool _localHasStealth;
+    public bool hasStealth
+    {
+        get => (Object != null && Object.IsValid) ? (bool)_netHasStealth : _localHasStealth;
+        set 
+        { 
+            if (Object != null && Object.IsValid) _netHasStealth = value; 
+            else _localHasStealth = value; 
+            
+            // Visual update
+            if (value) GetComponent<CanvasGroup>().alpha = 0.5f;
+            else GetComponent<CanvasGroup>().alpha = 1.0f;
+            
+            if (unitView != null) unitView.RefreshStatusIcons(hasTaunt, value);
+        }
+    }
     public bool isPlayerUnit = true;
 
     // [Hybrid Networked Properties]
@@ -36,7 +52,7 @@ public class UnitMover : NetworkBehaviour, IBeginDragHandler, IDragHandler, IEnd
     
     [Fusion.Networked] private string _netCardId { get; set; } // Renamed from _netScriptKey
     private string _lastCardId;
-
+    
     // ChangeDetector used in Render below
 
     private void OnCardIdSync()
@@ -113,6 +129,7 @@ public class UnitMover : NetworkBehaviour, IBeginDragHandler, IDragHandler, IEnd
                 _netCardId = sourceData.id;
                 _netAttackPower = attackPower;
                 _netHealth = health;
+                _netHasStealth = hasStealth; // Sync initial stealth
             }
         }
         else
@@ -124,6 +141,8 @@ public class UnitMover : NetworkBehaviour, IBeginDragHandler, IDragHandler, IEnd
             }
 
             SyncParentSlot();
+            // Initial visual update for stealth
+            if (_netHasStealth) GetComponent<CanvasGroup>().alpha = 0.5f;
         }
     }
 
@@ -144,22 +163,25 @@ public class UnitMover : NetworkBehaviour, IBeginDragHandler, IDragHandler, IEnd
                 case nameof(_netHealth):
                     if (unitView != null) unitView.RefreshDisplay();
                     break;
+                case nameof(_netHasStealth):
+                    bool stealth = _netHasStealth;
+                    if (stealth) GetComponent<CanvasGroup>().alpha = 0.5f;
+                    else GetComponent<CanvasGroup>().alpha = 1.0f;
+                    if (unitView != null) unitView.RefreshStatusIcons(hasTaunt, stealth);
+                    break;
             }
         }
     }
     
-    // ★修正: スロット同期処理 (権限ベースで決定)
-    void SyncParentSlot()
+    // ... (SyncParentSlot and Initialize remain similar, removed duplicates for brevity in edit)
+    
+     void SyncParentSlot()
     {
         if (GameManager.instance == null) return;
         
-        // HasStateAuthority (自分が生成した) -> PlayerBoard
-        // !HasStateAuthority (他人が生成した) -> EnemyBoard
         bool isMine = (Object != null && Object.IsValid) ? Object.HasStateAuthority : true;
-        
         Transform targetBoard = isMine ? GameObject.Find("PlayerBoard")?.transform : GameObject.Find("EnemyBoard")?.transform;
 
-        // 座標(SlotX, SlotY)を使って正しいスロットを探す
         if (targetBoard != null && NetworkedSlotX != -1 && NetworkedSlotY != -1)
         {
             foreach(Transform slot in targetBoard)
@@ -167,45 +189,41 @@ public class UnitMover : NetworkBehaviour, IBeginDragHandler, IDragHandler, IEnd
                 SlotInfo info = slot.GetComponent<SlotInfo>();
                 if (info != null && info.x == NetworkedSlotX && info.y == NetworkedSlotY)
                 {
-                    // すでに正しい親にいるなら何もしない
                     if (transform.parent == slot) return;
-
                     transform.SetParent(slot, false);
                     transform.localPosition = Vector3.zero;
-                    
-                    // ★重要: アニメーション復帰位置も更新
                     originalParent = slot; 
                     return;
                 }
             }
-            // 見つからない場合 (Fallback)
-             Debug.LogWarning($"Target Slot ({NetworkedSlotX}, {NetworkedSlotY}) not found on Board ({targetBoard.name}).");
         }
     }
-
-    // ... (Initialize methods remain similar) ...
-
+    
     public void Initialize(CardData data, bool isPlayer)
     {
-        isPlayerUnit = isPlayer; // 先に設定
+        isPlayerUnit = isPlayer; 
         
         attackPower = data.attack;
         health = data.health;
         sourceData = data; 
         maxHealth = data.health;
-        // scriptKey = data.scriptKey; // Deprecated
         
-        // 初期親設定（まだSyncParentSlotが走っていない場合用）
         originalParent = transform.parent;
 
-        // ★追加: Host側ならNetworked変数を即時更新して同期させる
+        // ★ DIFFICULTY BUFF (Hard: +1/+1 for CPU)
+        if (!isPlayer && PlayerDataManager.instance != null && PlayerDataManager.instance.cpuDifficulty == 2)
+        {
+             attackPower += 1;
+             health += 1;
+             maxHealth += 1;
+        }
+
         if (Object != null && Object.HasStateAuthority)
         {
-             _netCardId = data.id; // Use ID
-             _netAttackPower = data.attack;
-             _netHealth = data.health;
+             _netCardId = data.id; 
+             _netAttackPower = attackPower; // Use buffed values
+             _netHealth = health;         // Use buffed values
              
-             // 初期位置もNetworked変数に入れる
              SlotInfo slotInfo = transform.parent?.GetComponent<SlotInfo>();
              if (slotInfo != null)
              {
@@ -214,16 +232,14 @@ public class UnitMover : NetworkBehaviour, IBeginDragHandler, IDragHandler, IEnd
              }
         }
 
-        // ★修正: Visualsの強制更新 (Guest側で豆腐になるのを防ぐ)
         if (unitView != null) 
         {
             unitView.SetUnit(data);
             unitView.RefreshDisplay();
-            unitView.RefreshStatusIcons(hasTaunt, hasStealth); // Status Iconも更新
+            unitView.RefreshStatusIcons(hasTaunt, hasStealth); 
         }
         else
         {
-            // UnitViewがない場合は取得して実行
             unitView = GetComponent<UnitView>();
             if (unitView != null)
             {
@@ -238,13 +254,16 @@ public class UnitMover : NetworkBehaviour, IBeginDragHandler, IDragHandler, IEnd
             if (ability.trigger == EffectTrigger.PASSIVE)
             {
                 if (ability.effect == EffectType.TAUNT) hasTaunt = true;
-                if (ability.effect == EffectType.STEALTH) { hasStealth = true; GetComponent<CanvasGroup>().alpha = 0.5f; }
+                if (ability.effect == EffectType.STEALTH) { hasStealth = true; } // Setter handles visuals
                 if (ability.effect == EffectType.QUICK) hasQuick = true;
                 if (ability.effect == EffectType.HASTE) hasHaste = true;
                 if (ability.effect == EffectType.PIERCE) hasPierce = true; 
                 if (ability.effect == EffectType.SPELL_DAMAGE_PLUS) spellDamageBonus += ability.value;
             }
         }
+        
+        // Host Update stealth prop
+        if (Object != null && Object.HasStateAuthority) _netHasStealth = hasStealth;
         
         if (isPlayer)
         {
@@ -261,11 +280,8 @@ public class UnitMover : NetworkBehaviour, IBeginDragHandler, IDragHandler, IEnd
         }
         else
         {
-            // 敵ユニット設定
             canAttack = false; canMove = false;
-            canvasGroup.blocksRaycasts = true; // 詳細を見るためにRaycastは通す
-            
-            // アイコン反転
+            canvasGroup.blocksRaycasts = true; 
             if (unitView != null && unitView.iconImage != null)
             {
                 Vector3 scale = unitView.iconImage.transform.localScale;
@@ -273,9 +289,6 @@ public class UnitMover : NetworkBehaviour, IBeginDragHandler, IDragHandler, IEnd
                 unitView.iconImage.transform.localScale = scale;
             }
         }
-        
-        // 再度更新(念のため)
-        if (unitView != null) unitView.RefreshStatusIcons(hasTaunt, hasStealth);
     }
 
     public void ReturnToHand()
@@ -434,8 +447,10 @@ public class UnitMover : NetworkBehaviour, IBeginDragHandler, IDragHandler, IEnd
             int enemyDamage = enemy.attackPower;
             
             // 正面衝突ボーナス計算 (親スロットが必要)
-            SlotInfo mySlot = (transform.parent != null) ? transform.parent.GetComponent<SlotInfo>() : null;
-            SlotInfo enemySlot = (enemy.transform.parent != null) ? enemy.transform.parent.GetComponent<SlotInfo>() : null;
+            // アニメーション中は親が変わっているため、originalParentを参照する
+            SlotInfo mySlot = (originalParent != null) ? originalParent.GetComponent<SlotInfo>() : null;
+            SlotInfo enemySlot = (enemy.originalParent != null) ? enemy.originalParent.GetComponent<SlotInfo>() : null;
+            if (enemySlot == null && enemy.transform.parent != null) enemySlot = enemy.transform.parent.GetComponent<SlotInfo>();
             
             if (mySlot != null && enemySlot != null) 
             {

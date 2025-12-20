@@ -152,6 +152,12 @@ public class AbilityManager : MonoBehaviour
         {
             case EffectTarget.SELF: 
                 if (source != null) results.Add(source); 
+                else 
+                {
+                    // Spell case: Source is null. Target Leader as "Self".
+                    var selfLeader = GetLeaderTarget(EffectTarget.PLAYER_LEADER, isPlayerSide);
+                    if (selfLeader != null) results.Add(selfLeader);
+                }
                 break;
             case EffectTarget.ENEMY_LEADER:
             case EffectTarget.PLAYER_LEADER:
@@ -303,8 +309,7 @@ public class AbilityManager : MonoBehaviour
         switch (effectType)
         {
             case EffectType.GAIN_MANA:
-                if (isPlayerSide) { GameManager.instance.maxMana += value; GameManager.instance.UpdateManaUI(); }
-                else { GameManager.instance.enemyMaxMana += value; GameManager.instance.UpdateEnemyManaUI(); }
+                GameManager.instance.GainMana(value, isPlayerSide);
                 return true;
             case EffectType.DRAW_CARD:
                 PerformDrawCard(value, isPlayerSide, target);
@@ -406,6 +411,10 @@ public class AbilityManager : MonoBehaviour
 
         List<UnitMover> frontEnemies = new List<UnitMover>();
         List<UnitMover> backEnemies = new List<UnitMover>();
+        
+        // 優先ターゲット（正面の列）
+        UnitMover directFrontTarget = null;
+        UnitMover directBackTarget = null;
 
         foreach (Transform slot in targetBoard)
         {
@@ -413,13 +422,39 @@ public class AbilityManager : MonoBehaviour
             if (slot.childCount > 0)
             {
                 var unit = slot.GetChild(0).GetComponent<UnitMover>();
-                if (info.y == 0) frontEnemies.Add(unit);
-                else if (info.y == 1) backEnemies.Add(unit);
+                if (unit != null)
+                {
+                    if (info.y == 0) // Front Row
+                    {
+                        frontEnemies.Add(unit);
+                        if (info.x == mySlot.x) directFrontTarget = unit;
+                    }
+                    else if (info.y == 1) // Back Row
+                    {
+                        backEnemies.Add(unit);
+                        if (info.x == mySlot.x) directBackTarget = unit;
+                    }
+                }
             }
         }
 
-        if (frontEnemies.Count > 0) return frontEnemies[UnityEngine.Random.Range(0, frontEnemies.Count)];
-        else if (backEnemies.Count > 0) return backEnemies[UnityEngine.Random.Range(0, backEnemies.Count)];
+        // ロジック:
+        // 1. Front Row (y=0) に敵がいるか？
+        //    いるなら、その中から選ぶ。
+        //    優先順位: 正面の列 (Same X) -> ランダム
+        // 2. Front Row にいないなら、Back Row (y=1) から選ぶ。
+        //    優先順位: 正面の列 (Same X) -> ランダム
+        
+        if (frontEnemies.Count > 0)
+        {
+            if (directFrontTarget != null) return directFrontTarget;
+            return frontEnemies[UnityEngine.Random.Range(0, frontEnemies.Count)];
+        }
+        else if (backEnemies.Count > 0)
+        {
+            if (directBackTarget != null) return directBackTarget;
+            return backEnemies[UnityEngine.Random.Range(0, backEnemies.Count)];
+        }
 
         return null;
     }
@@ -432,16 +467,21 @@ public class AbilityManager : MonoBehaviour
         Transform myBoard = me.isPlayerUnit ? GameObject.Find("PlayerBoard").transform : GameManager.instance.enemyBoard;
         if (myBoard == null) return null;
         
-        int targetY = (mySlot.y == 1) ? 0 : -1;
-        if (targetY != -1)
+        // Front Row is y=0. Back Row is y=1.
+        // If I am at y=0, there is no one in front.
+        if (mySlot.y == 0) return null;
+
+        int targetY = mySlot.y - 1; // Look forward
+
+        foreach (Transform slot in myBoard)
         {
-            foreach (Transform slot in myBoard)
+            SlotInfo info = slot.GetComponent<SlotInfo>();
+            if (info != null && info.x == mySlot.x && info.y == targetY)
             {
-                SlotInfo info = slot.GetComponent<SlotInfo>();
-                if (info.x == mySlot.x && info.y == targetY && slot.childCount > 0)
-                {
-                    return slot.GetChild(0).GetComponent<UnitMover>();
-                }
+                 if (slot.childCount > 0)
+                 {
+                     return slot.GetChild(0).GetComponent<UnitMover>();
+                 }
             }
         }
         return null;

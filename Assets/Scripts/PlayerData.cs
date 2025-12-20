@@ -16,4 +16,7 @@ public class DeckData
     
     public List<string> cardIds = new List<string>();
     public List<string> buildIds = new List<string>(); // ★追加：ビルド用
+    
+    // 発行済みコード（PlayFab Shared Group IDの一部）
+    public string publishedCode = "";
 }

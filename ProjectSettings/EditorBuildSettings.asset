@@ -20,4 +20,7 @@ EditorBuildSettings:
   - enabled: 1
     path: Assets/Scenes/CardListScene.unity
     guid: a942ed4dfd01b754d975f6b3fb61d3f0
+  - enabled: 1
+    path: Assets/Scenes/RoomScene.unity
+    guid: 93be74b2a651ac64e997074c137b514b
   m_configObjects: {}

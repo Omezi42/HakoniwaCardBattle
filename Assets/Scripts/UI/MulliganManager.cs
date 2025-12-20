@@ -24,6 +24,19 @@ public class MulliganManager : MonoBehaviour
         replaceFlags = new List<bool>(new bool[hand.Count]); // 全部falseで初期化
 
         panelRoot.SetActive(true);
+        panelRoot.transform.SetAsLastSibling(); // Ensure it's on top of other UIs
+        Debug.Log("[MulliganManager] Mulligan UI Shown and moved to front.");
+        
+        if (confirmButton != null)
+        {
+            confirmButton.gameObject.SetActive(true); // Force Active
+            Debug.Log($"[MulliganManager] ConfirmButton State: Active={confirmButton.gameObject.activeInHierarchy}, Pos={confirmButton.transform.position}, Parent={confirmButton.transform.parent.name}");
+        }
+        else
+        {
+             Debug.LogError("[MulliganManager] ConfirmButton reference is NULL!");
+        }
+
         RefreshUI();
     }
 
@@ -87,6 +100,7 @@ public class MulliganManager : MonoBehaviour
 
     public void OnClickConfirm()
     {
+        Debug.Log("[MulliganManager] Confirm Button Clicked.");
         // GameManagerに結果を返す
         GameManager.instance.EndMulligan(replaceFlags);
         panelRoot.SetActive(false);

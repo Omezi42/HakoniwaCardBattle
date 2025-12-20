@@ -23,9 +23,11 @@ public class GameManager : MonoBehaviour
     public TextMeshProUGUI playerDeckCountText;
     public TextMeshProUGUI enemyDeckCountText;
 
-    [Header("リザルト・詳細表示")]
+    [Header("Result UI")]
     public GameObject resultPanel;
     public TextMeshProUGUI resultText;
+    public GameObject retryButton; // For Offline
+    public GameObject returnToRoomButton; // For Online
 
     [Header("カード拡大表示")]
     public GameObject enlargedCardPanel; 
@@ -68,6 +70,7 @@ public class GameManager : MonoBehaviour
     public CardView cardPrefab;
     public GameObject unitPrefabForEnemy;
     public GameObject playerUnitPrefab;
+    public Sprite manaCoinSprite; // Added for customized Mana Coin
 
     [Header("効果音(SE)")]
     public AudioClip seSummon;
@@ -85,8 +88,11 @@ public class GameManager : MonoBehaviour
     public BuildUIManager buildUIManager;
     public int playerBuildCooldown = 0;
     public int enemyBuildCooldown = 0;
-    private const int COOLDOWN_PLAYER = 5; 
-    private const int COOLDOWN_ENEMY = 4;
+    // Build Cooldowns (Dynamic)
+    public int maxPlayerBuildCooldown = 5; 
+    public int maxEnemyBuildCooldown = 4;
+    // Removed const int COOLDOWN_PLAYER / ENEMY to allow dynamic setting
+
 
     [Header("演出")]
     public GameObject floatingTextPrefab;
@@ -129,12 +135,18 @@ public class GameManager : MonoBehaviour
     private List<CardData> tempHand = new List<CardData>();
 
     private int turnCount = 0;
+    private bool isGameEnded = false;
 
     #region Singleton & Lifecycle
-    private void Awake() { if (instance == null) instance = this; }
+    private void Awake() 
+    { 
+        Debug.Log("[GameManager] Awake Called. Instance: " + (instance == null ? "null (Setting now)" : "Already Set"));
+        if (instance == null) instance = this; 
+    }
 
     void Start()
     {
+        isGameEnded = false;
         audioSource = GetComponent<AudioSource>();
         if (audioSource == null) audioSource = gameObject.AddComponent<AudioSource>();
 
@@ -176,21 +188,153 @@ public class GameManager : MonoBehaviour
             currentArrow.gameObject.SetActive(false);
         }
 
-        StartMulliganSequence();
+        // Offline Randomization
+        bool isFirst = true;
+        if (!isOnline) 
+        {
+            isFirst = (Random.Range(0, 2) == 0);
+        }
+
+        StartCoroutine(WaitForNetworkAndStart(isOnline, isFirst));
+    }
+
+    System.Collections.IEnumerator WaitForNetworkAndStart(bool isOnline, bool isFirst)
+    {
+        // Wait a frame to ensure NetworkRunner is ready if online
+        // Online Mode: Wait until GameStateController is spawned
+        GameStateController gameState = null;
+        while (gameState == null)
+        {
+            gameState = FindObjectOfType<GameStateController>();
+            if (gameState == null) yield return null;
+        }
+
+        Debug.Log("[GameManager] GameStateController found. Checking game status...");
+
+        if (isOnline)
+        {
+            // Submit Job ID
+            if (PlayerDataManager.instance != null && PlayerDataManager.instance.playerData.decks.Count > PlayerDataManager.instance.playerData.currentDeckIndex)
+            {
+               var currentDeck = PlayerDataManager.instance.playerData.decks[PlayerDataManager.instance.playerData.currentDeckIndex];
+               int myJobId = (int)currentDeck.deckJob; 
+               Debug.Log($"[GameManager] Sending JobID {myJobId} to GameStateController via RPC.");
+               gameState.RPC_SubmitJobId(myJobId);
+            }
+
+            // Check if game already started
+            if (gameState.IsGameStarted)
+            {
+                Debug.Log($"[GameManager] Game already started! FirstPlayer: {gameState.FirstPlayer}. Starting Mulligan manually.");
+                bool amIFirst = (NetworkConnectionManager.instance.Runner.LocalPlayer == gameState.FirstPlayer);
+                StartMulliganSequence(amIFirst ? 3 : 4, amIFirst);
+            }
+            else
+            {
+                Debug.Log("[GameManager] Online Mode: Waiting for GameStateController to start Mulligan...");
+            }
+        }
+        else
+        {
+            // Offline Mode (Should usually handle above, but purely for logic splitting)
+            StartMulliganSequence(isFirst ? 3 : 4, isFirst);
+        }
+    }
+
+    public void SetEnemyLeaderIcon(int jobId)
+    {
+        Debug.Log($"[GameManager] SetEnemyLeaderIcon called with JobId: {jobId}");
+
+        int index = jobId;
+        if (leaderIcons != null && index >= 0 && index < leaderIcons.Length)
+        {
+             Leader leaderScript = null;
+             
+             // Try 1: Find "EnemyInfo" (Standard)
+             GameObject enemyInfoObj = GameObject.Find("EnemyInfo");
+             if (enemyInfoObj != null) 
+             {
+                 leaderScript = enemyInfoObj.GetComponent<Leader>();
+                 if (leaderScript == null) leaderScript = enemyInfoObj.GetComponentInChildren<Leader>();
+             }
+
+             // Try 2: If failed, try "EnemyLeader"
+             if (leaderScript == null)
+             {
+                 GameObject enemyLeaderObj = GameObject.Find("EnemyLeader");
+                 if (enemyLeaderObj != null) leaderScript = enemyLeaderObj.GetComponent<Leader>();
+             }
+
+             // Apply
+             if (leaderScript != null)
+             {
+                 Debug.Log($"[GameManager] Found Enemy Leader Script on {leaderScript.gameObject.name}. Setting Icon to index {index}.");
+                 leaderScript.SetIcon(leaderIcons[index]);
+             }
+             else
+             {
+                 Debug.LogWarning("[GameManager] Enemy Leader Script NOT found! Searched 'EnemyInfo' and 'EnemyLeader'.");
+             }
+        }
+        else
+        {
+             Debug.LogWarning($"[GameManager] Invalid JobId {jobId} or LeaderIcons array issue. Index: {index}, Length: {(leaderIcons==null?0:leaderIcons.Length)}");
+        }
     }
     #endregion
 
     #region Mulligan
-    void StartMulliganSequence()
+    private bool amIFirstPlayer = true; // Default true (offline)
+
+    public void StartMulliganSequence(int drawCount = 3, bool isFirst = true)
     {
+        Debug.Log($"[GameManager] StartMulliganSequence Called. Draw: {drawCount}, First: {isFirst}");
+
+        // マリガン中はターン終了ボタンを無効化
+        if (endTurnButton != null) endTurnButton.GetComponent<Button>().interactable = false;
+
+        amIFirstPlayer = isFirst;
         tempHand.Clear();
-        for (int i = 0; i < 3; i++) { if (mainDeck.Count > 0) { tempHand.Add(mainDeck[0]); mainDeck.RemoveAt(0); } }
-        if (mulliganManager != null) mulliganManager.ShowMulligan(tempHand);
-        else StartGameAfterMulligan();
+        for (int i = 0; i < drawCount; i++) 
+        { 
+            if (mainDeck.Count > 0) 
+            { 
+                tempHand.Add(mainDeck[0]); 
+                mainDeck.RemoveAt(0); 
+            } 
+        }
+
+        Debug.Log($"[GameManager] MulliganManager Reference: {mulliganManager}");
+        if (mulliganManager != null) 
+        {
+            Debug.Log("[GameManager] Showing Mulligan UI.");
+            mulliganManager.ShowMulligan(tempHand);
+        }
+        else 
+        {
+            Debug.LogWarning("[GameManager] MulliganManager is NULL! Starting game immediately.");
+            StartGameAfterMulligan();
+        }
+
+        // Show Coin Toss Result AFTER Mulligan UI to ensure it is on top
+        ShowCoinTossResult(isFirst);
     }
+
+    void ShowCoinTossResult(bool isFirst)
+    {
+        if (turnCutIn != null)
+        {
+            turnCutIn.gameObject.SetActive(true);
+            turnCutIn.transform.SetAsLastSibling(); // Ensure Coin Toss is on top of Mulligan
+            turnCutIn.Show(isFirst ? "あなたは先攻です" : "あなたは後攻です", isFirst ? Color.cyan : Color.magenta);
+            Invoke("HideCutIn", 2.0f);
+        }
+    }
+    void HideCutIn() { if (turnCutIn != null) turnCutIn.gameObject.SetActive(false); }
 
     public void EndMulligan(List<bool> replaceFlags)
     {
+        if (mulliganManager != null) mulliganManager.gameObject.SetActive(false);
         for (int i = 0; i < replaceFlags.Count; i++) { if (replaceFlags[i] && tempHand[i] != null) { mainDeck.Add(tempHand[i]); tempHand[i] = null; } }
         ShuffleDeck();
         for (int i = 0; i < tempHand.Count; i++) { if (tempHand[i] == null && mainDeck.Count > 0) { tempHand[i] = mainDeck[0]; mainDeck.RemoveAt(0); } }
@@ -201,6 +345,7 @@ public class GameManager : MonoBehaviour
     #region Card Manipulation
     public void StartGameAfterMulligan()
     {
+        Debug.Log("[GameManager] StartGameAfterMulligan Called. Instantiating Hand Cards...");
         foreach (var data in tempHand)
         {
             if (data == null) continue;
@@ -210,26 +355,108 @@ public class GameManager : MonoBehaviour
             newCard.transform.localRotation = Quaternion.identity;
             newCard.ShowBack(false);
         }
+        
+        // Second Player Logic: Add Mana Coin
+        if (!amIFirstPlayer)
+        {
+            AddManaCoinToHand();
+            // Build Cooldown for Second Player is 4
+            maxPlayerBuildCooldown = 4; 
+            playerBuildCooldown = 0; // Initialize READY
+        }
+        else
+        {
+            // First Player: Cooldown 5
+            maxPlayerBuildCooldown = 5;
+            playerBuildCooldown = 0; // Initialize READY
+        }
+
         UpdateHandState();
         UpdateDeckGraveyardVisuals();
-        
-        // オフライン時のみ敵手札を初期化
+        UpdateBuildUI(); // visual update for cooldown if needed? (Cooldown is internal usually, but good to refresh)
+
+        // Mulligan終了後
+        tempHand.Clear();
+
+        // オフライン・オンライン共通: ボタンの有効化
+        if (endTurnButton != null) endTurnButton.GetComponent<Button>().interactable = true;
+
         bool isOnline = NetworkConnectionManager.instance != null && NetworkConnectionManager.instance.Runner != null && NetworkConnectionManager.instance.Runner.IsRunning;
-        
         if (isOnline)
         {
             // オンライン: Mulligan完了を通知
              var gameState = FindObjectOfType<GameStateController>();
              if (gameState != null) gameState.RPC_FinishMulligan(gameState.Runner.LocalPlayer);
-             
-             // ターン開始はGameStateControllerが管理するため、ここではStartPlayerTurnを呼ばない
         }
         else
         {
             // オフライン: 即座にゲーム開始
-            InitializeEnemyHand(3); 
+            
+            // ★ AI Difficulty Normal & Hard: Start with +1 Mana
+            if (PlayerDataManager.instance != null && PlayerDataManager.instance.cpuDifficulty >= 1)
+            {
+                 enemyMaxMana = 1;
+                 enemyCurrentMana = 1;
+                 UpdateEnemyManaUI();
+            }
+
+            // Enemy Turn Order Logic (Offline)
+            // If I am First (!amIFirstPlayer is false) -> Enemy is Second (4 cards + Coin)
+            // If I am Second (!amIFirstPlayer is true) -> Enemy is First (3 cards)
+            
+            if (amIFirstPlayer)
+            {
+                // Player is First, Enemy is Second (4 cards + Coin)
+                InitializeEnemyHand(4);
+                
+                // Add Mana Coin to Enemy
+                CardData coin = ScriptableObject.CreateInstance<CardData>();
+                coin.id = "ManaCoin";
+                coin.cardName = "マナコイン";
+                coin.cost = 0;
+                coin.type = CardType.SPELL;
+                coin.abilities = new List<CardAbility>();
+                enemyHandData.Add(coin);
+            }
+            else
+            {
+                // Player is Second, Enemy is First (3 cards)
+                InitializeEnemyHand(3);
+                // Start Enemy Turn immediately
+                StartEnemyTurn();
+                // Return here to avoid StartPlayerTurn below
+                return; 
+            }
+
             StartPlayerTurn();
         }
+    }
+
+    void AddManaCoinToHand()
+    {
+        // Mana Coin CardData creation
+        CardData coin = ScriptableObject.CreateInstance<CardData>();
+        coin.id = "ManaCoin";
+        coin.cardName = "マナコイン";
+        coin.description = "このターンのみ、マナを+1する。";
+        coin.cost = 0;
+        coin.type = CardType.SPELL;
+        
+        CardAbility ability = new CardAbility();
+        ability.effect = EffectType.GAIN_MANA;
+        ability.value = 1;
+        ability.trigger = EffectTrigger.SPELL_USE;
+        ability.target = EffectTarget.SELF; 
+        
+        coin.abilities = new List<CardAbility> { ability };
+        
+        // Assign Sprite if available
+        if (manaCoinSprite != null) coin.cardIcon = manaCoinSprite;
+        
+        // Add to Hand
+        CardView newCard = Instantiate(cardPrefab, handArea);
+        newCard.SetCard(coin);
+        newCard.ShowBack(false);
     }
 
     // ★修正：手札に戻す処理（確実にカードを生成する）
@@ -468,20 +695,34 @@ public class GameManager : MonoBehaviour
         if (turnCutIn != null) turnCutIn.Show("ENEMY TURN", Color.red);
         isPlayerTurn = false;
         
+        // 敵のボード状態（ビルドの建築完了など）を更新
+        ResetBoardState(false);
+        
         // UI更新などが必要ならここで行う
-        // マナの回復などはGameStateControllerの切り替わりタイミングで両者で行うか、
-        // あるいはターン開始イベントで処理する
+        UpdateBuildUI();
     }
 
-    void StartEnemyTurn() 
+    public void StartEnemyTurn() 
     { 
-        StartCoroutine(EnemyTurnSequence()); 
+        // Online Check
+        bool isOnline = NetworkConnectionManager.instance != null && NetworkConnectionManager.instance.Runner != null && NetworkConnectionManager.instance.Runner.IsRunning;
+        
+        if (isOnline)
+        {
+            OnOnlineEnemyTurnStart();
+        }
+        else
+        {
+            StartCoroutine(EnemyTurnSequence()); 
+        }
     }
 
     System.Collections.IEnumerator EnemyTurnSequence() 
     { 
+        if (isGameEnded) yield break;
+
         if (turnCutIn != null) turnCutIn.Show("ENEMY TURN", Color.red); 
-        yield return new WaitForSeconds(2.0f); 
+        yield return new WaitForSeconds(2.0f);  
 
         if (enemyBuildCooldown > 0) enemyBuildCooldown--; 
 
@@ -531,6 +772,7 @@ public class GameManager : MonoBehaviour
                 } 
             } 
         } 
+        UpdateBuildUI();
     }
     #endregion
 
@@ -538,6 +780,7 @@ public class GameManager : MonoBehaviour
     System.Collections.IEnumerator EnemyAttackPhase() 
     { 
         if (enemyBoard == null) yield break; 
+        if (isGameEnded) yield break;
 
         var attackers = enemyBoard.GetComponentsInChildren<UnitMover>()
             .Where(u => u.canAttack)
@@ -609,6 +852,7 @@ public class GameManager : MonoBehaviour
 
     System.Collections.IEnumerator EnemyMainPhase() 
     { 
+        if (isGameEnded) yield break;
         bool acted = true; 
         int loopSafety = 0; 
         while (acted && loopSafety < 10) 
@@ -670,7 +914,7 @@ public class GameManager : MonoBehaviour
             if (activeBuilds == null) activeBuilds = new List<ActiveBuild>(); 
             activeBuilds.Add(new ActiveBuild(buildable, false)); 
 
-            enemyBuildCooldown = COOLDOWN_ENEMY; 
+            enemyBuildCooldown = maxEnemyBuildCooldown; 
             if (BattleLogManager.instance != null) BattleLogManager.instance.AddLog($"敵は {buildable.cardName} を建設した", false, buildable); 
             PlaySE(seSummon); 
             UpdateBuildUI(); 
@@ -762,7 +1006,10 @@ public class GameManager : MonoBehaviour
         if (ability.effect == EffectType.DAMAGE || ability.effect == EffectType.DESTROY || ability.effect == EffectType.RETURN_TO_HAND) 
         { 
             var playerBoard = GameObject.Find("PlayerBoard").transform; 
-            var targets = playerBoard.GetComponentsInChildren<UnitMover>().OrderByDescending(u => u.attackPower).ToList(); 
+            // Filter out Stealth units
+            var targets = playerBoard.GetComponentsInChildren<UnitMover>()
+                .Where(u => !u.hasStealth) // Stealth filter
+                .OrderByDescending(u => u.attackPower).ToList(); 
             if (targets.Count > 0) return targets[0]; 
 
             if (ability.target == EffectTarget.SELECT_ANY_ENEMY || ability.target == EffectTarget.SELECT_ENEMY_LEADER) return playerLeader.GetComponent<Leader>(); 
@@ -1296,7 +1543,7 @@ public class GameManager : MonoBehaviour
         { 
             if (activeBuilds == null) activeBuilds = new List<ActiveBuild>(); 
             activeBuilds.Add(new ActiveBuild(data, true)); 
-            playerBuildCooldown = COOLDOWN_PLAYER; 
+            playerBuildCooldown = maxPlayerBuildCooldown; 
             Debug.Log(data.cardName + " の建築を開始します..."); 
             PlaySE(seSummon); 
             UpdateBuildUI(); 
@@ -1395,6 +1642,9 @@ public class GameManager : MonoBehaviour
     public void GameEnd(bool isPlayerWin) 
     { 
         if (resultPanel != null && resultPanel.activeSelf) return; 
+        if (isGameEnded) return; // Prevent multiple calls
+        isGameEnded = true;
+
         if (resultPanel != null) resultPanel.SetActive(true); 
 
         GameObject bgm = GameObject.Find("BGM Player"); 
@@ -1415,12 +1665,34 @@ public class GameManager : MonoBehaviour
                 PlaySE(seLose); 
             } 
         } 
+
+        // Button Toggle
+        bool isOnline = NetworkConnectionManager.instance != null && NetworkConnectionManager.instance.Runner != null && NetworkConnectionManager.instance.Runner.IsRunning;
+        if (retryButton) retryButton.SetActive(!isOnline);
+        if (returnToRoomButton) returnToRoomButton.SetActive(isOnline);
+
         isPlayerTurn = false; 
     }
 
     public void OnClickRetry() 
     { 
         SceneManager.LoadScene(SceneManager.GetActiveScene().name); 
+    }
+
+    // [NEW] Online: Back to Room
+    public void OnClickReturnToRoom()
+    {
+        var runner = NetworkConnectionManager.instance.Runner;
+        if (runner != null && runner.IsRunning)
+        {
+            // Keep Runner alive, load Room Scene
+            runner.LoadScene("RoomScene");
+        }
+        else
+        {
+             // Fallback
+             SceneManager.LoadScene("MenuScene");
+        }
     }
 
     public void OnClickMenu() 
@@ -1524,12 +1796,75 @@ public class GameManager : MonoBehaviour
                 playerManaCrystals[i].color = Color.white; 
                 var crystalUI = playerManaCrystals[i].GetComponent<ManaCrystalUI>(); 
                 if (crystalUI == null) crystalUI = playerManaCrystals[i].gameObject.AddComponent<ManaCrystalUI>(); 
+                playerManaCrystals[i].gameObject.SetActive(i < maxMana); 
                 bool isActive = (i < currentMana); 
                 crystalUI.SetState(isActive, manaOnSprite, manaOffSprite); 
-                playerManaCrystals[i].gameObject.SetActive(i < maxMana); 
             } 
         } 
         UpdateHandState(); 
+    }
+
+    // ★ NEW: Centralized Mana Gain with Visual Feedback (Crystal Animation)
+    public void GainMana(int amount, bool isPlayer)
+    {
+        if (isPlayer)
+        {
+            int oldMana = currentMana;
+            currentMana = Mathf.Min(currentMana + amount, maxMana + 10); 
+            
+            UpdateManaUI();
+            if (amount > 0) StartCoroutine(AnimateManaCrystalGain(oldMana, amount));
+        }
+        else
+        {
+            enemyCurrentMana += amount;
+            UpdateEnemyManaUI();
+        }
+    }
+
+    System.Collections.IEnumerator AnimateManaCrystalGain(int startIndex, int count)
+    {
+        if (playerManaCrystals == null) yield break;
+
+        // Collect targets (Newly active crystals)
+        List<Transform> targets = new List<Transform>();
+        for (int i = 0; i < count; i++)
+        {
+            int idx = startIndex + i;
+            if (idx >= 0 && idx < playerManaCrystals.Count && playerManaCrystals[idx] != null)
+            {
+                targets.Add(playerManaCrystals[idx].transform);
+            }
+        }
+
+        if (targets.Count == 0) yield break;
+        
+        // Scale Pulse Animation
+        Vector3 originalScale = Vector3.one;
+        float duration = 0.5f;
+        float elapsed = 0f;
+        
+        // Pop up effect
+        while(elapsed < duration)
+        {
+            float t = elapsed / duration;
+            // Sine wave pulse
+            float scale = Mathf.Lerp(1f, 1.8f, Mathf.Sin(t * Mathf.PI)); 
+            
+            foreach(var tObj in targets)
+            {
+                if (tObj != null) tObj.localScale = originalScale * scale;
+            }
+            
+            elapsed += Time.deltaTime;
+            yield return null;
+        }
+        
+        // Reset
+        foreach(var tObj in targets)
+        {
+             if (tObj != null) tObj.localScale = originalScale;
+        }
     }
 
     public void UpdateEnemyManaUI() 
@@ -1625,8 +1960,11 @@ public class GameManager : MonoBehaviour
                     { 
                         if (playerLeader != null) 
                         { 
-                            var face = playerLeader.GetComponentInChildren<LeaderFace>(); 
-                            if (face != null) face.GetComponent<UnityEngine.UI.Image>().sprite = leaderIcons[jobIndex]; 
+                            var leader = playerLeader.GetComponent<Leader>();
+                            if (leader != null)
+                            {
+                                leader.SetIcon(leaderIcons[jobIndex]);
+                            }
                         } 
                     } 
                 } 
@@ -1767,6 +2105,17 @@ public class GameManager : MonoBehaviour
     { 
         if (unit != null) 
         { 
+            // Stealth check: Enemy cannot target Stealth unit
+            // Note: Assuming 'isPlayerTurn' is true for the caster. 
+            // Ideally we need 'source' context, but here we assume Local Player is casting.
+            bool isEnemyUnit = !unit.isPlayerUnit;
+            if (isEnemyUnit && unit.hasStealth)
+            {
+                // Can only target if effect explicitly allows stealth (rare)
+                // Standard rule: Stealth = Untargetable by enemy
+                return false;
+            }
+
             if (targetType == EffectTarget.SELECT_ENEMY_UNIT || targetType == EffectTarget.SELECT_ANY_ENEMY) return !unit.isPlayerUnit; 
             if (targetType == EffectTarget.SELECT_UNDAMAGED_ENEMY) 
             { 

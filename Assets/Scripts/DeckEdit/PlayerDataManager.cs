@@ -7,6 +7,9 @@ public class PlayerDataManager : MonoBehaviour
 
     public PlayerData playerData = new PlayerData();
     private Dictionary<string, CardData> cardDatabase = new Dictionary<string, CardData>();
+    
+    // AI Difficulty (0: Easy, 1: Normal, 2: Hard)
+    public int cpuDifficulty = 0;
 
     private void Awake()
     {

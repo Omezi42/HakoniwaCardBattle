@@ -39,7 +39,14 @@ public class NetworkConnectionManager : MonoBehaviour, INetworkRunnerCallbacks
         }
     }
 
-    // ■ ルームマッチ (ID指定: 参加)
+    // ■ ルームマッチ (ID指定: 参加/作成 共通)
+    // OnlineMenuManagerから呼ばれる
+    public async Task StartSharedSession(string sessionName, string sceneName)
+    {
+        await StartGame(sessionName, GameMode.Shared, sceneName);
+    }
+    
+    // ■ ルームマッチ (旧: ID指定参加)
     public async void StartRoomMatch(string roomID)
     {
         if (string.IsNullOrEmpty(roomID)) 
@@ -47,16 +54,15 @@ public class NetworkConnectionManager : MonoBehaviour, INetworkRunnerCallbacks
             Debug.LogError("Room ID is empty");
             return;
         }
-        await StartGame(roomID, GameMode.Shared);
+        await StartGame(roomID, GameMode.Shared, "SampleScene"); // Default to SampleScene if legacy call
     }
 
-    // ■ ルームマッチ (ID生成: 作成)
+    // ■ ルームマッチ (旧: ID生成作成)
     public async void CreatePrivateRoom()
     {
-        // 6桁のランダムな数字IDを生成
-        string roomID = UnityEngine.Random.Range(100000, 999999).ToString();
+        string roomID = UnityEngine.Random.Range(1000, 9999).ToString();
         Debug.Log($"Creating Private Room with ID: {roomID}");
-        await StartGame(roomID, GameMode.Shared);
+        await StartGame(roomID, GameMode.Shared, "RoomScene");
     }
 
     private GameObject _runnerInstance;
@@ -64,7 +70,7 @@ public class NetworkConnectionManager : MonoBehaviour, INetworkRunnerCallbacks
     // ■ ランダムマッチ
     // ■ ランダムマッチ
     // ■ ランダムマッチ
-    public async void StartRandomMatch()
+    public async Task StartRandomMatch()
     {
         await CreateRunner(); // ロビー用のRunner作成
 
@@ -131,7 +137,7 @@ public class NetworkConnectionManager : MonoBehaviour, INetworkRunnerCallbacks
     }
 
     // 共通接続処理
-    async Task StartGame(string sessionName, GameMode mode = GameMode.Shared)
+    async Task StartGame(string sessionName, GameMode mode = GameMode.Shared, string specificSceneName = null)
     {
         // 念のためRunnerの状態をチェック
         if (_runner != null && _runner.IsRunning)
@@ -146,7 +152,8 @@ public class NetworkConnectionManager : MonoBehaviour, INetworkRunnerCallbacks
         await CreateRunner();
 
         // シーンパスの確認
-        string scenePath = $"Assets/Scenes/{gameSceneName}.unity";
+        string targetScene = !string.IsNullOrEmpty(specificSceneName) ? specificSceneName : gameSceneName;
+        string scenePath = $"Assets/Scenes/{targetScene}.unity";
         int sceneIndex = SceneUtility.GetBuildIndexByScenePath(scenePath);
 
         if (sceneIndex == -1)
@@ -156,7 +163,7 @@ public class NetworkConnectionManager : MonoBehaviour, INetworkRunnerCallbacks
             return;
         }
         
-        Debug.Log($"Starting Game with Scene: {gameSceneName} (Index: {sceneIndex}) in Session: {sessionName} Mode: {mode}");
+        Debug.Log($"Starting Game with Scene: {targetScene} (Index: {sceneIndex}) in Session: {sessionName} Mode: {mode}");
 
         // SceneManagerは明示的に追加し、引数で渡す (Fusion 2の推奨パターン)
         var sceneManager = _runnerInstance.GetComponent<NetworkSceneManagerDefault>();
@@ -193,17 +200,7 @@ public class NetworkConnectionManager : MonoBehaviour, INetworkRunnerCallbacks
         if (result.Ok)
         {
             Debug.Log($"Connected to Session: {sessionName}");
-
-            // Shared ModeのMaster(最初の作成者)だけがGameStateを生成する
-            // 注意: SharedModeでは IsServer は false, IsClient は true。
-            // 権限確認には IsSharedModeMasterClient などを本来使うが、単純に
-            // Runner.Spawn は SharedMode でも可能(権限を持てる)。
-            // 重複生成を防ぐため、少し待って確認するか、PlayerJoinedで制御する手もあるが
-            // ここでは簡易的に「自分が一人目なら生成」とする。
-            // しかしStartGame直後は PlayerCount が自分だけとは限らない(Join時)。
-            
-            // 少し非同期にチェック
-            CheckAndSpawnGameState();
+            // Spawn logic moved to OnSceneLoadDone to prevent premature spawn and destruction in RoomScene
         }
         else
         {
@@ -216,18 +213,17 @@ public class NetworkConnectionManager : MonoBehaviour, INetworkRunnerCallbacks
         await Task.Delay(1000); // 接続・同期待ち時間を少し延長
         if (_runner == null || !_runner.IsRunning) return;
 
+        // Ensure we are in the Game Scene before spawning GameState
+        if (SceneManager.GetActiveScene().name != "SampleScene") return;
+
         // すでに存在するかチェック
         var existingState = FindObjectOfType<GameStateController>();
         if (existingState != null) return;
         
-        // SharedModeでの重複生成防止: 最もIDが若いプレイヤー(リーダー)のみが生成を試みる
-        // ActivePlayersは全員持っているはず
-        var sortedPlayers = new List<PlayerRef>(_runner.ActivePlayers);
-        sortedPlayers.Sort((a, b) => a.PlayerId.CompareTo(b.PlayerId));
-
-        if (sortedPlayers.Count > 0 && sortedPlayers[0] == _runner.LocalPlayer)
+        // SharedModeでの重複生成防止: Shared Mode Master Clientのみが生成
+        if (_runner.IsSharedModeMasterClient)
         {
-             Debug.Log($"I am the Leader ({_runner.LocalPlayer}). Spawning GameStateController.");
+             Debug.Log($"I am the Shared Mode Master ({_runner.LocalPlayer}). Spawning GameStateController.");
              if (gameStatePrefab != null)
              {
                  _runner.Spawn(gameStatePrefab, Vector3.zero, Quaternion.identity);
@@ -249,6 +245,13 @@ public class NetworkConnectionManager : MonoBehaviour, INetworkRunnerCallbacks
         Debug.Log($"Session List Updated: {sessionList.Count} sessions");
         onSessionListUpdated?.Invoke(sessionList);
     }
+    
+    public void OnSceneLoadDone(NetworkRunner runner) 
+    { 
+        // When scene finishes loading, check if we need to spawn GameState
+        Debug.Log($"[NetworkConnectionManager] Scene Loaded: {SceneManager.GetActiveScene().name}");
+        CheckAndSpawnGameState();
+    }
 
     public void OnPlayerJoined(NetworkRunner runner, PlayerRef player) { Debug.Log($"Player Joined: {player}"); }
     public void OnPlayerLeft(NetworkRunner runner, PlayerRef player) { Debug.Log($"Player Left: {player}"); }
@@ -264,7 +267,6 @@ public class NetworkConnectionManager : MonoBehaviour, INetworkRunnerCallbacks
     public void OnHostMigration(NetworkRunner runner, HostMigrationToken hostMigrationToken) { }
     public void OnReliableDataReceived(NetworkRunner runner, PlayerRef player, ReliableKey key, ArraySegment<byte> data) { }
     public void OnReliableDataProgress(NetworkRunner runner, PlayerRef player, ReliableKey key, float progress) { }
-    public void OnSceneLoadDone(NetworkRunner runner) { }
     public void OnSceneLoadStart(NetworkRunner runner) { }
     public void OnObjectExitAOI(NetworkRunner runner, NetworkObject obj, PlayerRef player) { }
     public void OnObjectEnterAOI(NetworkRunner runner, NetworkObject obj, PlayerRef player) { } 

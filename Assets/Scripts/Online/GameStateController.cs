@@ -15,6 +15,9 @@ public class GameStateController : NetworkBehaviour
     // ゲーム開始フラグ
     [Networked] public bool IsGameStarted { get; set; }
 
+    // 先攻プレイヤー (Late Joiner用)
+    [Networked] public PlayerRef FirstPlayer { get; set; }
+
     public override void Spawned()
     {
         // 初期化: まだゲーム開始しない
@@ -23,10 +26,18 @@ public class GameStateController : NetworkBehaviour
             TurnCount = 0;
             IsGameStarted = false;
         }
+        Debug.Log($"[GameState] Spawned. Active Scene: {UnityEngine.SceneManagement.SceneManager.GetActiveScene().name}. IsServer: {Runner.IsServer}, IsSharedModeMaster: {Runner.IsSharedModeMasterClient}");
     }
 
-    public override void Render()
+    private int _logTimer = 0;
+    public override void FixedUpdateNetwork()
     {
+        _logTimer++;
+        if (_logTimer % 60 == 0) // Log once per second approx
+        {
+             // Debug.Log($"[GameState] FUN Running. Scene: {UnityEngine.SceneManagement.SceneManager.GetActiveScene().name}, IsGameStarted: {IsGameStarted}");
+        }
+
         // プレイヤー人数チェック (ホストのみ)
         if (Object.HasStateAuthority && !IsGameStarted)
         {
@@ -39,9 +50,58 @@ public class GameStateController : NetworkBehaviour
         CheckTurnUpdate();
     }
 
-    // Old methods removed
-    
+    public override void Despawned(NetworkRunner runner, bool hasState)
+    {
+        Debug.Log($"[GameState] Despawned. Active Scene: {UnityEngine.SceneManagement.SceneManager.GetActiveScene().name}");
+    }
+
+    void OnDestroy()
+    {
+        Debug.LogWarning($"[GameState] OnDestroy Called! Active Scene: {UnityEngine.SceneManagement.SceneManager.GetActiveScene().name}");
+    }
+
+    public override void Render()
+    {
+        CheckJobUpdate();
+    }
+
+    // State Tracking
+    private int _lastP1JobId = 0;
+    private int _lastP2JobId = 0;
     private PlayerRef _lastActivePlayer = PlayerRef.None;
+    private int _lastTurnCount = 0;
+    private bool _descTurn1RPCReceived = false;
+    private PlayerRef _predictedActivePlayer = PlayerRef.None;
+
+    void CheckJobUpdate()
+    {
+        if (Player1JobId != _lastP1JobId || Player2JobId != _lastP2JobId)
+        {
+            _lastP1JobId = Player1JobId;
+            _lastP2JobId = Player2JobId;
+            
+            // UI Update
+            if (GameManager.instance != null)
+            {
+                // Identify which one is ME and which is ENEMY
+                // Sorted list
+                var sorted = Runner.ActivePlayers.OrderBy(p => p.PlayerId).ToList();
+                int myJob = -1;
+                int enemyJob = -1;
+
+                if (sorted.Count > 0)
+                {
+                    if (sorted[0] == Runner.LocalPlayer) { myJob = Player1JobId; enemyJob = Player2JobId; }
+                    else if (sorted.Count > 1 && sorted[1] == Runner.LocalPlayer) { myJob = Player2JobId; enemyJob = Player1JobId; }
+                }
+
+                // Apply
+                if (enemyJob != 0) GameManager.instance.SetEnemyLeaderIcon(enemyJob);
+                // My job is usually set locally, but we can ensure sync if needed.
+                // For now, only Enemy Job is requested to be synced.
+            }
+        }
+    }
 
 
     void OnTurnChanged()
@@ -49,8 +109,15 @@ public class GameStateController : NetworkBehaviour
         // 自分がActivePlayerなら「自分のターン」
         bool isMyTurn = (Runner.LocalPlayer == ActivePlayer);
         
-        Debug.Log($"[GameState] Turn Changed. Active: {ActivePlayer}, IsMyTurn: {isMyTurn}");
+        Debug.Log($"[GameState] Turn Changed. Active: {ActivePlayer} (ID:{ActivePlayer.PlayerId}), Local: {Runner.LocalPlayer} (ID:{Runner.LocalPlayer.PlayerId}), IsMyTurn: {isMyTurn}");
 
+        // Fallback: Check by ID if direct comparison fails
+        if (!isMyTurn && Runner.LocalPlayer.PlayerId == ActivePlayer.PlayerId)
+        {
+             Debug.LogWarning("[GameState] PlayerRef comparison failed but IDs match! Forcing isMyTurn = true.");
+             isMyTurn = true;
+        }
+        
         if (GameManager.instance != null)
         {
             if (isMyTurn)
@@ -110,7 +177,15 @@ public class GameStateController : NetworkBehaviour
         UnityEngine.Random.InitState(seed);
         
         // カードデータのロード
-        CardData card = Resources.Load<CardData>("Cards/" + cardId);
+        CardData card = null;
+        if (PlayerDataManager.instance != null)
+        {
+            card = PlayerDataManager.instance.GetCardById(cardId);
+        }
+        if (card == null)
+        {
+             card = Resources.Load<CardData>("Cards/" + cardId);
+        }
         if (card == null) return;
         
         // ターゲットの特定
@@ -158,9 +233,27 @@ public class GameStateController : NetworkBehaviour
         }
         GameManager.instance.PlaySE(GameManager.instance.seSummon);
     }
+    // 先攻プレイヤー (Coin Tossで決定)
+    // [Removed duplicate FirstPlayer]
+    
     // マリガン完了フラグ
     [Networked] public NetworkBool IsP1MulliganDone { get; set; }
     [Networked] public NetworkBool IsP2MulliganDone { get; set; }
+
+    // Leader Job IDs
+    [Networked] public int Player1JobId { get; set; }
+    [Networked] public int Player2JobId { get; set; }
+
+    [Rpc(RpcSources.All, RpcTargets.StateAuthority)]
+    public void RPC_SubmitJobId(int jobId, RpcInfo info = default)
+    {
+        // Identify if Sender is P1 or P2
+        var sorted = Runner.ActivePlayers.OrderBy(p => p.PlayerId).ToList();
+        if (sorted.Count > 0 && sorted[0] == info.Source) Player1JobId = jobId;
+        else if (sorted.Count > 1 && sorted[1] == info.Source) Player2JobId = jobId;
+        
+        Debug.Log($"[GameState] Received JobID {jobId} from {info.Source}");
+    }
 
     [Rpc(RpcSources.All, RpcTargets.StateAuthority)]
     public void RPC_FinishMulligan(PlayerRef player)
@@ -176,36 +269,149 @@ public class GameStateController : NetworkBehaviour
     // ゲーム開始時: マリガン待機
     private void StartGame()
     {
-        IsGameStarted = true; // ゲームセッション開始
-        TurnCount = 0; // まだターンは始めない
+        // ルームシーンなど、ゲームシーン以外では開始ロジックを走らせない
+        if (UnityEngine.SceneManagement.SceneManager.GetActiveScene().name != "SampleScene")
+        {
+            return;
+        }
+
+        // 先攻後攻をランダムに決定するためにActivePlayersを確認
+        var players = Runner.ActivePlayers.OrderBy(p => p.PlayerId).ToList();
         
-        // UI側でマリガン開始
-        // GameManager側で接続数検知してマリガンUI出す想定
+        // アクティブなプレイヤーが2人揃っているか確認 (SessionInfoだけでなく実体も必要)
+        if (players.Count >= 2)
+        {
+            IsGameStarted = true; // ここで初めて開始フラグを立てる
+            TurnCount = 0; 
+            
+            int r = UnityEngine.Random.Range(0, 2);
+            FirstPlayer = players[r];
+            ActivePlayer = FirstPlayer; // 最初のターンプレイヤー
+            Debug.Log($"[GameState] Coin Toss! First Player: {FirstPlayer}");
+            
+            // 全クライアントにマリガン開始を通知
+            RPC_StartMulligan(FirstPlayer);
+        }
+        else
+        {
+            // まだ揃っていない (SessionInfoは2でもSimulationが追いついていない場合など)
+            // 次のフレームで再トライさせるため、何もしない
+             Debug.Log($"[GameState] Waiting for ActivePlayers sync... (Count: {players.Count})");
+        }
+    }
+    
+    [Rpc(RpcSources.StateAuthority, RpcTargets.All)]
+    public void RPC_StartMulligan(PlayerRef firstPlayer)
+    {
+        Debug.Log($"[GameState] RPC_StartMulligan Called. First Player: {firstPlayer}. Checking GameManager instance...");
+        if (GameManager.instance != null)
+        {
+            Debug.Log("[GameState] GameManager.instance found. invoking StartMulliganSequence.");
+            // 自分が先攻か後攻か判定
+            bool amIFirst = (Runner.LocalPlayer == firstPlayer);
+            int drawCount = amIFirst ? 3 : 4;
+            
+            // コイン演出などを出すならここ
+            // GameManagerのマリガン開始
+            GameManager.instance.StartMulliganSequence(drawCount, amIFirst);
+        }
+        else
+        {
+            Debug.LogError("[GameState] CRITICAL: GameManager.instance is NULL! Cannot start Mulligan.");
+        }
     }
 
     void CheckTurnUpdate()
     {
-        if (!IsGameStarted) return;
+        if (_logTimer % 60 == 0)
+        {
+             // Debug.Log($"[GameState] CheckTurnUpdate. Started:{IsGameStarted} Turn:{TurnCount} Active:{ActivePlayer} LastActive:{_lastActivePlayer}");
+             Debug.Log($"[GameState] Heartbeat: Started={IsGameStarted} Turn={TurnCount} Active={ActivePlayer} LastActive={_lastActivePlayer} Local={Runner.LocalPlayer}");
+        }
+
+        if (!IsGameStarted)
+    {
+        if (_descTurn1RPCReceived && _logTimer % 60 == 0)
+        {
+             Debug.LogWarning($"[GameState] CheckTurnUpdate Skipped. IsGameStarted is FALSE. (Turn1RPCReceived={_descTurn1RPCReceived})");
+        }
+        return;
+    }
 
         // マリガン完了待ち
+        // ネットワークラグ対策: RPC受信済みなら TurnCount=0 でも 1扱いする
+        // Fusionは毎フレームNetworked変数を正規の状態にリセットするため、まだ来ていないなら毎回上書きが必要
+        // ★修正: ActivePlayerが None または 予測されたプレイヤー(P1) と一致する場合も強制適用する
+        // (ActivePlayerだけ同期されて TurnCountが0のままの場合、デッドロックになるのを防ぐ)
+        if (_descTurn1RPCReceived && TurnCount == 0 && (ActivePlayer == PlayerRef.None || ActivePlayer == _predictedActivePlayer))
+        {
+             TurnCount = 1;
+             ActivePlayer = _predictedActivePlayer;
+             IsGameStarted = true;
+             IsP1MulliganDone = true;
+             IsP2MulliganDone = true;
+             // Debug.Log($"[GameState] Re-applying prediction: Turn=1 Active={ActivePlayer}");
+        }
+
         if (TurnCount == 0)
         {
-            if (Object.HasStateAuthority)
+            if (IsP1MulliganDone && IsP2MulliganDone)
             {
-                if (IsP1MulliganDone && IsP2MulliganDone)
-                {
-                    TurnCount = 1;
-                    ActivePlayer = Runner.ActivePlayers.OrderBy(p => p.PlayerId).First();
-                    Debug.Log($"[GameState] All Mulligan Done! Start Turn 1. Active: {ActivePlayer}");
-                }
+                TurnCount = 1;
+                ActivePlayer = FirstPlayer; 
+                Debug.Log($"[GameState] All Mulligan Done! Start Turn 1. Active: {ActivePlayer}");
+                if (Object.HasStateAuthority) RPC_StartTurn1(ActivePlayer);
+            }
+
+            // Guest also needs to know we are waiting here (Check flag to suppress wait if we know turn started)
+            if (!_descTurn1RPCReceived && _logTimer % 60 == 0)
+            {
+                Debug.Log($"[GameState] Waiting for Turn 1... Turn={TurnCount} P1Mul:{IsP1MulliganDone} P2Mul:{IsP2MulliganDone}");
             }
             return;
         }
 
-        if (_lastActivePlayer != ActivePlayer)
+        // Check for Turn Change
+        // ★修正: ActivePlayerの変化だけでなく、TurnCountの変化も監視する
+        // (ネットワークラグで ActivePlayerの変更パケットが落ちて、同じプレイヤーの手番が連続したように見えた場合でもターン切替を検知する)
+        if (_lastActivePlayer != ActivePlayer || _lastTurnCount != TurnCount)
         {
+            Debug.Log($"[GameState] Turn Change Detected! From {_lastActivePlayer} to {ActivePlayer}. TurnCount: {_lastTurnCount} -> {TurnCount}");
             _lastActivePlayer = ActivePlayer;
+            _lastTurnCount = TurnCount;
             OnTurnChanged();
+        }
+    }
+
+    [Rpc(RpcSources.StateAuthority, RpcTargets.All)]
+    public void RPC_StartTurn1(PlayerRef activePlayer)
+    {
+        Debug.Log($"[GameState] RPC_StartTurn1 Received. Active: {activePlayer}");
+        
+        // If we are the Guest (Proxy), we might receive this RPC before the Networked Vars (TurnCount/IsP1MulliganDone) have replicated.
+        // We TRUST the Host's signal here and force the local state to proceed.
+        if (!Object.HasStateAuthority)
+        {
+            Debug.LogWarning($"[GameState] Forcing Local State Update via RPC_StartTurn1 (Guest Prediction). Active: {activePlayer}");
+            _descTurn1RPCReceived = true; // Set local flag
+            _predictedActivePlayer = activePlayer; // Store for re-application
+            
+            TurnCount = 1;
+            ActivePlayer = activePlayer;
+            // ★修正: ゲーム開始フラグも強制的に立てる (同期遅延で CheckTurnUpdate が止まるのを防ぐ)
+            IsGameStarted = true;
+            
+            // Should also set Mulligan flags to true to ensure logic flow consistency if checked elsewhere
+            IsP1MulliganDone = true;
+            IsP2MulliganDone = true;
+            
+            // Force turn update check immediately to ensure UI/GameManager syncs NOW
+            if (_lastActivePlayer != ActivePlayer)
+            {
+                 Debug.Log($"[GameState] RPC Prediction causing immediate Turn Change! From {_lastActivePlayer} to {ActivePlayer}");
+                 _lastActivePlayer = ActivePlayer;
+                 OnTurnChanged();
+            }
         }
     }
 
@@ -251,16 +457,32 @@ public class GameStateController : NetworkBehaviour
         // なので、Senderと比較する。
         bool isMine = (Runner.LocalPlayer == info.Source); // RPCを送ったのが自分ならTrue
         
-        // 自分が送った場合 -> isMine=true. BuildConstruction内でローカル処理済みなら二重になる？
-        // GameManager側で「RPCから呼ばれたら追加」にするか、
-        // 「ローカル実行時にRPCを送る」なら、自分はスキップする。
-        
         if (isMine) return; // 送信元は既に処理済み(投機実行)としているならリターン
 
         if (GameManager.instance != null)
         {
             // 相手が建てた = isPlayer=falseとして処理
             GameManager.instance.ConstructBuildByEffect(cardId, false);
+        }
+    }
+
+    // ★追加: リタイア用RPC
+    [Rpc(RpcSources.All, RpcTargets.All)]
+    public void RPC_Resign(PlayerRef resigningPlayer)
+    {
+        Debug.Log($"[GameState] Player {resigningPlayer} resigned.");
+        
+        // Host updates the networked state to stop the game loop
+        if (Object.HasStateAuthority)
+        {
+            IsGameStarted = false;
+        }
+
+        if (GameManager.instance != null)
+        {
+             // 自分が辞めたなら負け、相手が辞めたなら勝ち
+             bool amIResigner = (Runner.LocalPlayer == resigningPlayer);
+             GameManager.instance.GameEnd(!amIResigner);
         }
     }
 }

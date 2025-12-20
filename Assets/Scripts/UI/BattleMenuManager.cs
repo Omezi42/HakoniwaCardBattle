@@ -1,6 +1,7 @@
 using UnityEngine;
 using UnityEngine.UI;
 using UnityEngine.SceneManagement;
+using Fusion;
 
 public class BattleMenuManager : MonoBehaviour
 {
@@ -94,6 +95,15 @@ public class BattleMenuManager : MonoBehaviour
     {
         // リタイア処理（負け扱い）
         CloseMenu();
+
+        // ★Online Check
+        var gameState = FindObjectOfType<GameStateController>();
+        if (gameState != null && gameState.Object != null && gameState.Object.IsValid)
+        {
+             gameState.RPC_Resign(gameState.Runner.LocalPlayer);
+             return; 
+        }
+
         if (GameManager.instance != null)
         {
             GameManager.instance.GameEnd(false); // プレイヤー敗北

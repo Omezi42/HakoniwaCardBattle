@@ -55,8 +55,29 @@ public class DeckViewManager : MonoBehaviour
             }
         }
 
-        // ここで「長いコード」は生成しておくが、表示はしない（あるいはボタンを押して発行）
-        deckCodeText.text = "Click 'Publish' to get code";
+        // デッキ自体が公開コードを持っているか確認
+        if (deck != null && !string.IsNullOrEmpty(deck.publishedCode))
+        {
+            deckCodeText.text = deck.publishedCode;
+            // ボタンを「コピー」状態にする
+            if (copyCodeButton)
+            {
+                 var btnText = copyCodeButton.GetComponentInChildren<TextMeshProUGUI>();
+                 if (btnText) btnText.text = "コピー";
+            }
+        }
+        else
+        {
+            // まだ無い場合
+            deckCodeText.text = "-------";
+            
+            // ボタンテキスト変更
+            if (copyCodeButton)
+            {
+                 var btnText = copyCodeButton.GetComponentInChildren<TextMeshProUGUI>();
+                 if (btnText) btnText.text = "発行";
+            }
+        }
         
         RefreshCardList(deck);
     }
@@ -65,34 +86,78 @@ public class DeckViewManager : MonoBehaviour
     public void PublishAndCopyCode()
     {
         if (viewingDeck == null) return;
-        
-        string longCode = DeckCodeUtility.Encode(viewingDeck);
 
-        // Firebaseが生きていれば保存
-        if (DeckCodeDatabaseManager.instance != null)
+        // すでにコードが発行済み（テキストが有効なもの）なら、それをコピーするだけで終了
+        // ★修正: テキストボックスの状態だけでなく、データ自体も見る
+        if (!string.IsNullOrEmpty(viewingDeck.publishedCode) || 
+           (deckCodeText.text != "-------" && deckCodeText.text != "Publishing..." && deckCodeText.text != "Error"))
+        {
+            string codeToCopy = !string.IsNullOrEmpty(viewingDeck.publishedCode) ? viewingDeck.publishedCode : deckCodeText.text;
+            
+            GUIUtility.systemCopyBuffer = codeToCopy;
+            Debug.Log($"Copied existing code: {codeToCopy}");
+            
+            // フィードバック表示
+            StartCoroutine(FlashButtonText("コピー完了！"));
+            return;
+        }
+        
+        string deckJson = DeckCodeUtility.Encode(viewingDeck); // JSON(Base64)を取得
+
+        // PlayFabへ登録 (PlayFabManager内でShared Groupを作成)
+        if (PlayFabManager.instance != null)
         {
             deckCodeText.text = "Publishing...";
-            DeckCodeDatabaseManager.instance.RegisterDeck(longCode, (shortCode, error) => {
+            PlayFabManager.instance.RegisterDeck(deckJson, (shortCode, error) => {
                 if (string.IsNullOrEmpty(error))
                 {
+                    // 成功時
                     deckCodeText.text = shortCode;
                     GUIUtility.systemCopyBuffer = shortCode;
-                    Debug.Log($"Published & Copied: {shortCode}");
+                    
+                    // ★重要: 発行されたコードをデッキデータに保存して永続化
+                    viewingDeck.publishedCode = shortCode;
+                    PlayerDataManager.instance.Save(); // セーブ
+                    
+                    Debug.Log($"Published & Saved Code: {shortCode}");
+                    
+                    if (copyCodeButton)
+                    {
+                        var btnText = copyCodeButton.GetComponentInChildren<TextMeshProUGUI>();
+                        if (btnText) btnText.text = "コピー";
+                        StartCoroutine(FlashButtonText("コピー完了！"));
+                    }
                 }
                 else
                 {
                     deckCodeText.text = "Error";
                     Debug.LogError(error);
-                    // 失敗したらローカルコードを出すなどのフォールバックも可
                 }
             });
         }
         else
         {
-            // Firebaseが無い場合は長いコードをそのまま出す
-            deckCodeText.text = longCode;
-            GUIUtility.systemCopyBuffer = longCode;
-            Debug.Log("Copied local code (Firebase not active)");
+            Debug.LogError("PlayFabManager instance not found");
+        }
+    }
+
+    // 一時的にボタンテキストを変更して戻すコルーチン
+    private System.Collections.IEnumerator FlashButtonText(string tempText)
+    {
+        if (copyCodeButton)
+        {
+            var btnText = copyCodeButton.GetComponentInChildren<TextMeshProUGUI>();
+            if (btnText)
+            {
+                string original = "コピー";
+                btnText.text = tempText;
+                yield return new WaitForSeconds(1.0f);
+                // 画面が閉じられていなければ戻す
+                if (deckViewPopupRoot != null && deckViewPopupRoot.activeSelf)
+                {
+                    btnText.text = original;
+                }
+            }
         }
     }
 

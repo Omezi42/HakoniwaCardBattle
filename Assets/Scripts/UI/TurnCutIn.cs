@@ -32,6 +32,8 @@ public class TurnCutIn : MonoBehaviour
         titleText.text = text;
         titleText.color = color;
 
+        transform.SetAsLastSibling(); // Ensure it acts as a Cut-In on top of everything
+
         StopAllCoroutines();
         StartCoroutine(PlayAnimation());
     }

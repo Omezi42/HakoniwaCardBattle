@@ -92,8 +92,12 @@ public class DropPlace : MonoBehaviour, IDropHandler, IPointerEnterHandler, IPoi
                         SlotInfo info = transform.GetComponent<SlotInfo>();
                         if (info != null)
                         {
-                            mover.NetworkedSlotX = info.x;
-                            mover.NetworkedSlotY = info.y;
+                            // オフライン時はNetworkObjectが無効なのでアクセスしない
+                            if (mover.Object != null && mover.Object.IsValid)
+                            {
+                                mover.NetworkedSlotX = info.x;
+                                mover.NetworkedSlotY = info.y;
+                            }
                         } 
                     }
                     

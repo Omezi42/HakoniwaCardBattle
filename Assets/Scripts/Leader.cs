@@ -104,4 +104,25 @@ public class Leader : MonoBehaviour, IDropHandler
         
         if (hpText != null) hpText.text = currentHp.ToString();
     }
+    public void SetIcon(Sprite icon)
+    {
+        // Try to find Image component on "FaceImage" child
+        var faceTransform = transform.Find("FaceImage");
+        if (faceTransform != null)
+        {
+            var img = faceTransform.GetComponent<Image>();
+            if (img != null)
+            {
+                img.sprite = icon;
+                return;
+            }
+        }
+
+        // Fallback: Check self
+        var selfImg = GetComponent<Image>();
+        if (selfImg != null)
+        {
+            selfImg.sprite = icon;
+        }
+    }
 }
