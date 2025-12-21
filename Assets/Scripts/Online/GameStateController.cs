@@ -32,11 +32,13 @@ public class GameStateController : NetworkBehaviour
     private int _logTimer = 0;
     public override void FixedUpdateNetwork()
     {
-        _logTimer++;
+        // _logTimer++; // Timer moved to Render
+        /*
         if (_logTimer % 60 == 0) // Log once per second approx
         {
              // Debug.Log($"[GameState] FUN Running. Scene: {UnityEngine.SceneManagement.SceneManager.GetActiveScene().name}, IsGameStarted: {IsGameStarted}");
         }
+        */
 
         // プレイヤー人数チェック (ホストのみ)
         if (Object.HasStateAuthority && !IsGameStarted)
@@ -47,7 +49,7 @@ public class GameStateController : NetworkBehaviour
             }
         }
 
-        CheckTurnUpdate();
+        // CheckTurnUpdate(); // Moved to Render to ensure execution on Proxy
     }
 
     public override void Despawned(NetworkRunner runner, bool hasState)
@@ -62,6 +64,10 @@ public class GameStateController : NetworkBehaviour
 
     public override void Render()
     {
+        // _logTimer moved to Render for heartbeat debug (Removed for production cleanliness)
+        // _logTimer++;
+        
+        CheckTurnUpdate();
         CheckJobUpdate();
     }
 
@@ -483,6 +489,27 @@ public class GameStateController : NetworkBehaviour
              // 自分が辞めたなら負け、相手が辞めたなら勝ち
              bool amIResigner = (Runner.LocalPlayer == resigningPlayer);
              GameManager.instance.GameEnd(!amIResigner);
+        }
+    }
+
+    [Rpc(RpcSources.StateAuthority, RpcTargets.All)]
+    public void RPC_BroadcastLog(string text, PlayerRef actor, string cardId = "")
+    {
+        // Log consistency check could be added here
+        
+        // Determine if this is "my" action or "enemy" action for color coding
+        bool isPlayerAction = (actor == Runner.LocalPlayer);
+        
+        // Card data retrieval (optional, for hover tooltip)
+        CardData card = null;
+        if (!string.IsNullOrEmpty(cardId) && PlayerDataManager.instance != null)
+        {
+             card = PlayerDataManager.instance.GetCardById(cardId);
+        }
+
+        if (BattleLogManager.instance != null)
+        {
+            BattleLogManager.instance.AddLog(text, isPlayerAction, card);
         }
     }
 }

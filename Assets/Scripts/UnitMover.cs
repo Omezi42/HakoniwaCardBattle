@@ -513,7 +513,13 @@ public class UnitMover : NetworkBehaviour, IBeginDragHandler, IDragHandler, IEnd
         
         if (health <= 0) 
         {
-            if (AbilityManager.instance != null && sourceData != null) AbilityManager.instance.ProcessAbilities(sourceData, EffectTrigger.ON_DEATH, this);
+            // [Fix] OnDeath logic should only run on Authority in Online Mode
+            if (Object == null || !Object.IsValid || Object.HasStateAuthority)
+            {
+                if (AbilityManager.instance != null && sourceData != null) 
+                    AbilityManager.instance.ProcessAbilities(sourceData, EffectTrigger.ON_DEATH, this);
+            }
+            
             if (GameManager.instance != null) GameManager.instance.PlayDiscardAnimation(sourceData, isPlayerUnit);
             
             // Network Despawn

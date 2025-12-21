@@ -106,7 +106,7 @@ public class DropPlace : MonoBehaviour, IDropHandler, IPointerEnterHandler, IPoi
                     
                     newUnit.GetComponent<UnitMover>().PlaySummonAnimation();
 
-                    if (BattleLogManager.instance != null) BattleLogManager.instance.AddLog($" {draggedCard.cardData.cardName} を召喚した", true, draggedCard.cardData);
+                    if (GameManager.instance != null) GameManager.instance.BroadcastLog($" {draggedCard.cardData.cardName} を召喚した", true, draggedCard.cardData);
 
                     Destroy(draggedCard.gameObject);
                 }

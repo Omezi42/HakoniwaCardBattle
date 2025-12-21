@@ -915,7 +915,8 @@ public class GameManager : MonoBehaviour
             activeBuilds.Add(new ActiveBuild(buildable, false)); 
 
             enemyBuildCooldown = maxEnemyBuildCooldown; 
-            if (BattleLogManager.instance != null) BattleLogManager.instance.AddLog($"敵は {buildable.cardName} を建設した", false, buildable); 
+            enemyBuildCooldown = maxEnemyBuildCooldown; 
+            BroadcastLog($"敵は {buildable.cardName} を建設した", false, buildable); 
             PlaySE(seSummon); 
             UpdateBuildUI(); 
             ShowBuildDetail(buildable, buildable.duration); 
@@ -944,7 +945,9 @@ public class GameManager : MonoBehaviour
 
         if (mover.hasHaste) mover.canAttack = true; 
 
-        if (BattleLogManager.instance != null) BattleLogManager.instance.AddLog($"敵は {card.cardName} を召喚した", false, card); 
+        if (mover.hasHaste) mover.canAttack = true; 
+
+        BroadcastLog($"敵は {card.cardName} を召喚した", false, card); 
         PlaySE(seSummon); 
         return true; 
     }
@@ -962,7 +965,9 @@ public class GameManager : MonoBehaviour
         AbilityManager.instance.TriggerSpellReaction(false); 
         PlayDiscardAnimation(card, false); 
 
-        if (BattleLogManager.instance != null) BattleLogManager.instance.AddLog($"敵は {card.cardName} を唱えた", false, card); 
+        PlayDiscardAnimation(card, false); 
+
+        BroadcastLog($"敵は {card.cardName} を唱えた", false, card); 
         PlaySE(seSummon); 
         return true; 
     }
@@ -972,7 +977,7 @@ public class GameManager : MonoBehaviour
         if (activeBuilds == null) activeBuilds = new List<ActiveBuild>(); 
         activeBuilds.Add(new ActiveBuild(card, false)); 
 
-        if (BattleLogManager.instance != null) BattleLogManager.instance.AddLog($"敵は {card.cardName} を建設した", false, card); 
+        BroadcastLog($"敵は {card.cardName} を建設した", false, card); 
         PlaySE(seSummon); 
         UpdateBuildUI(); 
         return true; 
@@ -1180,13 +1185,40 @@ public class GameManager : MonoBehaviour
             cardObj.transform.localRotation = Quaternion.identity; 
             if (cg != null) cg.blocksRaycasts = true; 
 
-            if (isPlayer && !silent && BattleLogManager.instance != null) BattleLogManager.instance.AddLog("カードを引いた", true); 
-            else if (!isPlayer && !silent && BattleLogManager.instance != null) BattleLogManager.instance.AddLog("相手がカードを引いた", false); 
+            if (isPlayer && !silent) BroadcastLog("カードを引いた", true); 
+            else if (!isPlayer && !silent) BroadcastLog("相手がカードを引いた", false); 
 
             UpdateHandState(); 
             UpdateDeckGraveyardVisuals(); 
             yield return new WaitForSeconds(0.05f); 
         } 
+    }
+
+    public void BroadcastLog(string text, bool isPlayerAction, CardData card = null)
+    {
+        var gameState = FindObjectOfType<GameStateController>();
+        if (gameState != null && gameState.Object.IsValid)
+        {
+            if (gameState.Object.HasStateAuthority)
+            {
+                Fusion.PlayerRef actor = gameState.Runner.LocalPlayer;
+                if (!isPlayerAction)
+                {
+                    foreach(var p in gameState.Runner.ActivePlayers) 
+                    { 
+                        if (p != gameState.Runner.LocalPlayer) { actor = p; break; } 
+                    }
+                }
+                
+                string cardId = card != null ? card.id : "";
+                gameState.RPC_BroadcastLog(text, actor, cardId);
+            }
+            // Guest: Do nothing to avoid double logs (Host will RPC)
+        }
+        else
+        {
+             if (BattleLogManager.instance != null) BattleLogManager.instance.AddLog(text, isPlayerAction, card);
+        }
     }
 
     public void UpdateDeckGraveyardVisuals() 
@@ -1329,7 +1361,7 @@ public class GameManager : MonoBehaviour
         AbilityManager.instance.ProcessAbilities(currentCastingCard.cardData, EffectTrigger.SPELL_USE, null, manualTarget);
         AbilityManager.instance.TriggerSpellReaction(isPlayerTurn);
         PlayDiscardAnimation(currentCastingCard.cardData, true);
-        if(BattleLogManager.instance!=null) BattleLogManager.instance.AddLog($" {currentCastingCard.cardData.cardName} を唱えた", true, currentCastingCard.cardData);
+        BroadcastLog($" {currentCastingCard.cardData.cardName} を唱えた", true, currentCastingCard.cardData);
         Destroy(currentCastingCard.gameObject);
         CleanupSpellMode();
         PlaySE(seSummon);
@@ -1443,7 +1475,7 @@ public class GameManager : MonoBehaviour
         }
         AbilityManager.instance.ProcessAbilities(card, EffectTrigger.ON_SUMMON, mover, manualTarget);
         mover.PlaySummonAnimation();
-        if (BattleLogManager.instance != null) BattleLogManager.instance.AddLog($" {card.cardName} を召喚した", true, card);
+        BroadcastLog($" {card.cardName} を召喚した", true, card);
         PlaySE(seSummon);
         Destroy(currentCastingCard.gameObject);
         CleanupSpellMode();
