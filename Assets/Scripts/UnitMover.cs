@@ -145,6 +145,16 @@ public class UnitMover : NetworkBehaviour, IBeginDragHandler, IDragHandler, IEnd
             if (_netHasStealth) GetComponent<CanvasGroup>().alpha = 0.5f;
         }
     }
+    public override void FixedUpdateNetwork()
+    {
+        if (HasStateAuthority)
+        {
+            // Sync Logic Vars -> Network Vars
+            _netAttackPower = attackPower;
+            _netHealth = health;
+            _netHasStealth = hasStealth;
+        }
+    }
 
     public override void Render()
     {
@@ -165,6 +175,10 @@ public class UnitMover : NetworkBehaviour, IBeginDragHandler, IDragHandler, IEnd
                     break;
                 case nameof(_netHasStealth):
                     bool stealth = _netHasStealth;
+                    // ★Fix: Sync Logic Variable too, not just Visuals!
+                    // This ensures CheckTargetValidity works on Proxy.
+                    hasStealth = stealth; 
+                    
                     if (stealth) GetComponent<CanvasGroup>().alpha = 0.5f;
                     else GetComponent<CanvasGroup>().alpha = 1.0f;
                     if (unitView != null) unitView.RefreshStatusIcons(hasTaunt, stealth);
@@ -291,20 +305,7 @@ public class UnitMover : NetworkBehaviour, IBeginDragHandler, IDragHandler, IEnd
         }
     }
 
-    public void ReturnToHand()
-    {
-        Debug.Log($"[UnitMover] ReturnToHand called for: {name}");
-        if (sourceData == null) { Destroy(gameObject); return; }
 
-        if (GameManager.instance != null)
-        {
-            GameManager.instance.ReturnCardToHand(sourceData, isPlayerUnit, transform.position);
-            if (BattleLogManager.instance != null) BattleLogManager.instance.AddLog($"{sourceData.cardName} を手札に戻した", GameManager.instance.isPlayerTurn);
-        }
-        // NetworkDespawn should be handled if networked
-        if (Object != null && Object.IsValid) Runner.Despawn(Object);
-        else Destroy(gameObject);
-    }
     
     // ... (Pointer handlers remain similar) ...
 
@@ -379,12 +380,21 @@ public class UnitMover : NetworkBehaviour, IBeginDragHandler, IDragHandler, IEnd
         {
             // 相手が攻撃者の場合 -> 自分(プレイヤー)のリーダーを攻撃されている
             target = GameObject.Find("PlayerInfo")?.GetComponent<Leader>();
-            // または PlayerLeader を検索
-            // 通常 PlayerBoard/PlayerInfo 構造なら PlayerInfo
         }
 
         if (target != null)
         {
+            if (BattleLogManager.instance != null) 
+            {
+                 // Determine actor for log color
+                 bool isMyUnit = HasStateAuthority; // Likely true if I am Sender? No, RPC runs on ALL.
+                 // Source Data is available? Yes, unit instance holds it.
+                 // "SourceData.cardName が リーダー に攻撃!"
+                 // isPlayerUnit is correct context on each client?
+                 // If I am Guest, Host Unit has isPlayerUnit=false. Correct.
+                 BattleLogManager.instance.AddLog($"{sourceData.cardName} が リーダー に攻撃！", isPlayerUnit);
+            }
+
             StartCoroutine(TackleAnimation(target.atkArea != null ? target.atkArea : target.transform, () => 
             {
                 GameManager.instance.PlaySE(GameManager.instance.seAttack);
@@ -420,7 +430,9 @@ public class UnitMover : NetworkBehaviour, IBeginDragHandler, IDragHandler, IEnd
     private void PerformAttackLeader(Leader target)
     {
         RemoveStealth();
-        AbilityManager.instance.ProcessAbilities(sourceData, EffectTrigger.ON_ATTACK, this);
+        // [Fix] Logic only on Authority
+        if (HasStateAuthority) AbilityManager.instance.ProcessAbilities(sourceData, EffectTrigger.ON_ATTACK, this);
+        
         string targetName = "リーダー";
         if (BattleLogManager.instance != null) BattleLogManager.instance.AddLog($"{sourceData.cardName} が {targetName} に攻撃！", isPlayerUnit);
         
@@ -430,15 +442,22 @@ public class UnitMover : NetworkBehaviour, IBeginDragHandler, IDragHandler, IEnd
         StartCoroutine(TackleAnimation(targetTransform, () => 
         {
             GameManager.instance.PlaySE(GameManager.instance.seAttack);
-            target.TakeDamage(attackPower);
-            ConsumeAttack();
+            // [Fix] Damage only on Authority
+            if (HasStateAuthority)
+            {
+                target.TakeDamage(attackPower);
+                ConsumeAttack(); // State update
+            }
         }));
     }
 
     private void PerformAttackUnit(UnitMover enemy)
     {
         RemoveStealth();
-        AbilityManager.instance.ProcessAbilities(sourceData, EffectTrigger.ON_ATTACK, this);
+        
+        // [Fix] Logic only on Authority
+        if (HasStateAuthority) AbilityManager.instance.ProcessAbilities(sourceData, EffectTrigger.ON_ATTACK, this);
+        
         if (BattleLogManager.instance != null) BattleLogManager.instance.AddLog($"{sourceData.cardName} が {enemy.sourceData.cardName} に攻撃！", isPlayerUnit);
 
         StartCoroutine(TackleAnimation(enemy.transform, () => 
@@ -447,7 +466,6 @@ public class UnitMover : NetworkBehaviour, IBeginDragHandler, IDragHandler, IEnd
             int enemyDamage = enemy.attackPower;
             
             // 正面衝突ボーナス計算 (親スロットが必要)
-            // アニメーション中は親が変わっているため、originalParentを参照する
             SlotInfo mySlot = (originalParent != null) ? originalParent.GetComponent<SlotInfo>() : null;
             SlotInfo enemySlot = (enemy.originalParent != null) ? enemy.originalParent.GetComponent<SlotInfo>() : null;
             if (enemySlot == null && enemy.transform.parent != null) enemySlot = enemy.transform.parent.GetComponent<SlotInfo>();
@@ -458,39 +476,118 @@ public class UnitMover : NetworkBehaviour, IBeginDragHandler, IDragHandler, IEnd
                 {
                     finalDamage += 1;
                     enemyDamage += 1;
-                    // Debug.Log("正面衝突ボーナス！ +1ダメージ");
                 }
             }
             
-            // ダメージ適用
-            // TakeDamage内でStateAuthorityチェックが必要だが、NetworkedプロパティはAuthorityしか変更できない
-            // したがってここで値を減らしても、AuthorityがないとRevertされる。
-            // 解決策: HostにRPCを送ってダメージ処理？
-            // Shared Modeの場合:
-            // 攻撃側(A)が防御側(B)のHPを減らす -> AでB.health -= dmg してもBに反映されない。
-            // しかし、B側でもこのRPCが走っている！
-            // RPC_AttackUnit は RpcTargets.All なので、B側（被害者）でも PerformAttackUnit が呼ばれる。
-            // 被害者(B)が HasStateAuthority を持っていれば、そこで health -= dmg されて同期される！
-            
-            enemy.TakeDamage(finalDamage);
-            
-            if (hasPierce) 
+            // [Fix] Logic only on Authority
+            if (HasStateAuthority)
             {
-                UnitMover backUnit = GetBackUnit(enemy);
-                if (backUnit != null) 
+                // Host calls TakeDamage directly.
+                // If Enemy is Remote, TakeDamage sends RPC from Host? No, TakeDamage check Authority.
+                // If Host is Authority of Source, is Host Authority of Enemy? Not necessarily in Shared.
+                // BUT, Host is StateAuthority of EVERY OBJECT in Shared Mode (Host-Client architecture emulation).
+                // Wait, Shared Mode has "State Authority" on the client who spawned it?
+                // No, Shared Mode usually has ownership.
+                // "HasStateAuthority" in Fusion Shared Mode usually means "I have ownership" or "I am the Master Logic Executor".
+                // If I am Master Client (Host), I likely have StateAuth over game state.
+                // But for Units spawned by Guest... Guest has StateAuth?
+                // Let's assume standard "Host-Server" logic emulation where Host arbitrates.
+                // If Guest has StateAuth over their unit, Host cannot change it directly.
+                // So Host must send RPC or Guest must execute logic.
+                
+                // CRITICAL CHECK: In Shared Mode, who has StateAuthority over Guest Units? The Guest (creator).
+                // So if Host runs this logic, Host has NO Authority over Guest Unit. 
+                // Host calling enemy.TakeDamage() -> Checks HasStateAuthority (False) -> Sends RPC.
+                // Guest receives RPC -> Applies Damage.
+                // This workflow is CORRECT.
+                // If we also ran logic on Guest (Attacker), Guest calls enemy.TakeDamage() (Enemy=Host Unit).
+                // Guest (No Auth) -> RPC -> Host applies.
+                
+                // So if BOTH run:
+                // Host -> RPC to Guest (for Guest Unit damage)
+                // Guest -> RPC to Host (for Host Unit damage)
+                // Result: Double Damage?
+                // No, Attacker=Guest. Enemy=Host.
+                // Guest runs: Damages Host Unit (RPC).
+                // Host runs: Damages Host Unit (Direct).
+                // YES, Double Damage.
+                
+                // So RESTRICTING TO "HasStateAuthority" (of the Attacker) is correct?
+                // If Attacker is Guest Unit, Guest has StateAuth.
+                // So Guest runs logic. Host skips.
+                // Guest: Damages Enemy (RPC). Draws Card (Direct/RPC).
+                
+                // BUT user said "Double Draw".
+                // If Guest runs logic -> Draws.
+                // If Host runs logic -> Draws (Forces Guest to draw).
+                
+                // So we want ONLY ONE to run logic.
+                // Should it be Host or Owner?
+                // I previously decided "Host Only" for consistency (like Server).
+                // But in Shared Mode, Guest has Authority over their units.
+                // If I switch to "Host Only", Host controls Guest Units?
+                // Host can use `Object.RequestStateAuthority()` but that's complex.
+                
+                // BETTER STRATEGY: "Only StateAuthority of the ATTACKER executes logic".
+                // If Guest attacks with their unit -> Guest is Authority. Guest executes logic.
+                // Host (Proxy of Attacker) skips logic.
+                // This fits Shared Mode best.
+                
+                enemy.TakeDamage(finalDamage);
+                
+                if (hasPierce) 
                 {
-                    if (BattleLogManager.instance != null) BattleLogManager.instance.AddLog("貫通ダメージ！", isPlayerUnit);
-                    backUnit.TakeDamage(this.attackPower);
+                    UnitMover backUnit = GetBackUnit(enemy);
+                    if (backUnit != null) 
+                    {
+                        if (BattleLogManager.instance != null) BattleLogManager.instance.AddLog("貫通ダメージ！", isPlayerUnit);
+                        backUnit.TakeDamage(this.attackPower);
+                    }
                 }
+                
+                this.TakeDamage(enemyDamage);
+                ConsumeAttack();
             }
-            
-            this.TakeDamage(enemyDamage);
-            
-            if(HasStateAuthority) ConsumeAttack();
         }));
     }
 
     void RemoveStealth() { if (hasStealth) { hasStealth = false; GetComponent<CanvasGroup>().alpha = 1.0f; if (unitView != null) unitView.RefreshStatusIcons(hasTaunt, hasStealth); Debug.Log("潜伏が解除されました"); } }
+    
+    // Unsummon Logic
+    public void ReturnToHand()
+    {
+        if (Object != null && Object.IsValid && !Object.HasStateAuthority)
+        {
+             // Request Host to handle return
+             RPC_ReturnToHand();
+             return;
+        }
+
+        // Logic (Host or Offline)
+        if (GameManager.instance != null)
+        {
+            GameManager.instance.ReturnCardToHand(sourceData, isPlayerUnit, transform.position);
+            
+            // Add Log (Broadcast via RPC if needed, but BattleLogManager does local log usually)
+            // GameManager.ReturnCardToHand might broadcast? 
+            // Let's add explicit log here if GameManager doesn't.
+            // But wait, GameManager.ReturnCardToHand creates a new card instance.
+            // Let's rely on GameManager for visual, but Log here is good practice.
+            if (BattleLogManager.instance != null && sourceData != null) 
+                BattleLogManager.instance.AddLog($"{sourceData.cardName} を手札に戻した", isPlayerUnit); 
+        }
+        
+        // Destroy Unit
+        if (Object != null && Object.IsValid) Runner.Despawn(Object);
+        else Destroy(gameObject);
+    }
+
+    [Rpc(RpcSources.All, RpcTargets.StateAuthority)]
+    public void RPC_ReturnToHand()
+    {
+        ReturnToHand();
+    }
+
     UnitMover GetBackUnit(UnitMover frontUnit) { if (frontUnit.transform.parent == null) return null; SlotInfo frontSlot = frontUnit.transform.parent.GetComponent<SlotInfo>(); if (frontSlot == null || frontSlot.y != 0) return null; Transform board = frontUnit.transform.parent.parent; if (board == null) return null; foreach (Transform slot in board) { SlotInfo info = slot.GetComponent<SlotInfo>(); if (info != null && info.x == frontSlot.x && info.y == 1 && slot.childCount > 0) { return slot.GetChild(0).GetComponent<UnitMover>(); } } return null; }
     
     public void TakeDamage(int damage) 
@@ -571,8 +668,8 @@ public class UnitMover : NetworkBehaviour, IBeginDragHandler, IDragHandler, IEnd
     }
     
     // ... (rest of methods) ...
-    public void MoveToSlot(Transform targetSlot) { StartCoroutine(MoveAnimation(targetSlot)); }
-    private System.Collections.IEnumerator MoveAnimation(Transform targetSlot) 
+    public void MoveToSlot(Transform targetSlot, System.Action onComplete = null) { StartCoroutine(MoveAnimation(targetSlot, onComplete)); }
+    private System.Collections.IEnumerator MoveAnimation(Transform targetSlot, System.Action onComplete) 
     { 
         isAnimating = true; 
         transform.SetParent(transform.root); 
@@ -587,27 +684,40 @@ public class UnitMover : NetworkBehaviour, IBeginDragHandler, IDragHandler, IEnd
             yield return null; 
         } 
         transform.position = endPos; 
-        transform.SetParent(targetSlot); 
-        transform.localPosition = Vector3.zero; 
-        originalParent = targetSlot; 
         
-        // ★Network Update
+        // Finalize Parent
+        if (targetSlot != null) 
+        {
+             transform.SetParent(targetSlot);
+             transform.localPosition = Vector3.zero;
+             originalParent = targetSlot;
+        }
+
+        // Network Update (Sync Slot Position)
         if (Object != null && Object.IsValid && HasStateAuthority)
         {
-            SlotInfo info = targetSlot.GetComponent<SlotInfo>();
+            SlotInfo info = targetSlot != null ? targetSlot.GetComponent<SlotInfo>() : null;
             if (info != null)
             {
                 NetworkedSlotX = info.x;
                 NetworkedSlotY = info.y;
             }
         }
-
-        ConsumeMove(); 
+        
+        // Trigger ON_MOVE effects
         if (AbilityManager.instance != null && sourceData != null) 
         { 
             AbilityManager.instance.ProcessAbilities(sourceData, EffectTrigger.ON_MOVE, this); 
-        } 
+        }
+        
+        // Consume Action Logic
+        // Assuming ConsumeAction() covers "Move Used".
+        ConsumeAction();
+
         isAnimating = false; 
+        
+        // Trigger Callback
+        onComplete?.Invoke();
     }
     public void PlaySummonAnimation() { StartCoroutine(SummonAnimationCoroutine()); }
     private System.Collections.IEnumerator SummonAnimationCoroutine() { isAnimating = true; Vector3 originalScale = transform.localScale; Vector3 landPos = transform.localPosition; Vector3 startPos = landPos + new Vector3(0, 50f, 0); transform.localPosition = startPos; transform.localScale = originalScale * 1.2f; if(canvasGroup) canvasGroup.alpha = 0f; float duration = 0.25f; float elapsed = 0f; while (elapsed < duration) { float t = elapsed / duration; t = t * t * (3f - 2f * t); transform.localPosition = Vector3.Lerp(startPos, landPos, t); transform.localScale = Vector3.Lerp(originalScale * 1.2f, originalScale, t); if(canvasGroup) canvasGroup.alpha = Mathf.Lerp(0f, 1f, t * 2); elapsed += Time.deltaTime; yield return null; } transform.localPosition = landPos; transform.localScale = originalScale; if(canvasGroup) canvasGroup.alpha = 1f; isAnimating = false; }

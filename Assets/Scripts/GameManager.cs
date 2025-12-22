@@ -43,11 +43,15 @@ public class GameManager : MonoBehaviour
     public int enemyGraveyardCount = 0;
 
     [Header("デッキ・手札")]
+    [Header("デッキ・手札")]
     public List<CardData> mainDeck = new List<CardData>();
+    public List<CardData> hand = new List<CardData>(); // Fixed missing 'hand'
+
 
     [Header("敵のステータス")]
     public Transform enemyBoard;
     public Transform playerLeader;
+    public GameObject enemyLeaderObj; // Fixed missing 'enemyLeaderObj'
     public Transform enemyManaText;
     public Transform enemyDeckIsland; 
     public GameObject enemyDeckVisual;
@@ -163,6 +167,9 @@ public class GameManager : MonoBehaviour
             enlargedCardView.enableHoverDetail = false; 
         }
 
+        if (cardBackPrefab == null) Debug.LogError("[GameManager] cardBackPrefab is NOT assigned in Inspector!");
+        else Debug.Log("[GameManager] cardBackPrefab is assigned.");
+
         bool isOnline = NetworkConnectionManager.instance != null && NetworkConnectionManager.instance.Runner != null && NetworkConnectionManager.instance.Runner.IsRunning;
 
         UpdateManaUI();
@@ -256,13 +263,20 @@ public class GameManager : MonoBehaviour
              {
                  leaderScript = enemyInfoObj.GetComponent<Leader>();
                  if (leaderScript == null) leaderScript = enemyInfoObj.GetComponentInChildren<Leader>();
+                 
+                 // ★CRITICAL FIX: Assign to field so SyncNetworkInfo uses it
+                 if (this.enemyLeaderObj == null) this.enemyLeaderObj = enemyInfoObj;
              }
 
              // Try 2: If failed, try "EnemyLeader"
              if (leaderScript == null)
              {
                  GameObject enemyLeaderObj = GameObject.Find("EnemyLeader");
-                 if (enemyLeaderObj != null) leaderScript = enemyLeaderObj.GetComponent<Leader>();
+                 if (enemyLeaderObj != null) 
+                 {
+                     leaderScript = enemyLeaderObj.GetComponent<Leader>();
+                     if (this.enemyLeaderObj == null) this.enemyLeaderObj = enemyLeaderObj;
+                 }
              }
 
              // Apply
@@ -428,7 +442,16 @@ public class GameManager : MonoBehaviour
                 return; 
             }
 
+            if (!NetworkConnectionManager.instance.Runner.IsRunning)
+        {
             StartPlayerTurn();
+        }
+        else
+        {
+             // Online: GameStateController handles turn switching.
+             // We just wait for OnTurnChanged event.
+             Debug.Log("[GameManager] Online Mode: Waiting for GameStateController to trigger turn.");
+        }
         }
     }
 
@@ -639,6 +662,16 @@ public class GameManager : MonoBehaviour
             turnCutIn.gameObject.SetActive(true); 
             turnCutIn.Show("YOUR TURN", Color.cyan); 
         } 
+        
+        // ★Sync Fix: Online Mode Enemy Turn End Processing
+        bool isOnline = NetworkConnectionManager.instance != null && NetworkConnectionManager.instance.Runner != null && NetworkConnectionManager.instance.Runner.IsRunning;
+        if (isOnline)
+        {
+            // Update Enemy Logic (Decay Enemy Builds, etc.)
+             AbilityManager.instance.ProcessBuildEffects(EffectTrigger.ON_TURN_END, false); 
+             DecreaseBuildDuration(false); 
+        }
+
         yield return new WaitForSeconds(2.0f); 
 
         turnCount++; 
@@ -655,11 +688,170 @@ public class GameManager : MonoBehaviour
 
         if (buildUIManager != null && buildUIManager.gameObject.activeSelf) buildUIManager.OpenMenu(true); 
         UpdateBuildUI(); 
+        if (Input.GetKeyDown(KeyCode.Space)) OnClickEndTurn();
     }
 
+    // ★Sync Network State (Host writes, Guest reads)
+    // ★Sync Network State (Host writes, Guest reads)
+    void SyncNetworkInfo()
+    {
+        var gameState = FindObjectOfType<GameStateController>();
+        if (gameState == null || gameState.Object == null || !gameState.Object.IsValid) return;
+
+        bool isHost = gameState.Object.HasStateAuthority;
+        
+        // Pushing Local Stats to Host (Both Host and Guest do this, but Host does it via direct set usually)
+        // Guest MUST do this via RPC. Host can set directly.
+        if (isHost)
+        {
+             // Host Logic:
+             // 1. Update my own stats to NetworkedVars
+             if (playerLeader != null) gameState.Player1Hp = playerLeader.GetComponent<Leader>().currentHp;
+             gameState.Player1HandCount = hand.Count;
+             gameState.Player1DeckCount = mainDeck.Count;
+             gameState.Player1GraveCount = playerGraveyardCount;
+             
+             // 2. Read Opponent (P2) stats from NetworkedVars (Sent by Guest via RPC)
+             //    and update the "Dummy" EnemyInfo on Host screen.
+             Leader enemyL = enemyLeaderObj != null ? enemyLeaderObj.GetComponent<Leader>() : null;
+             
+             // If EnemyLeaderObj is missing, try find it once more
+             if (enemyL == null && enemyLeaderObj == null)
+             {
+                  // Retry finding
+                  enemyLeaderObj = GameObject.Find("EnemyInfo");
+                  if (enemyLeaderObj) enemyL = enemyLeaderObj.GetComponent<Leader>();
+                  
+                  // Suppress log spam
+                  // if (enemyL == null) Debug.LogWarning("[HostSync] EnemyLeaderObj Missing...");
+             }
+
+             if (enemyL != null)
+             {
+                 // SYNC DIRECTION: Network -> Host Dummy
+                 if (enemyL.currentHp != gameState.Player2Hp)
+                 {
+                      enemyL.currentHp = gameState.Player2Hp;
+                      enemyL.UpdateHPBar();
+                 }
+             }
+             
+             // Sync Counts (Visuals on Host)
+             enemyDeckCount = gameState.Player2DeckCount;
+             enemyGraveyardCount = gameState.Player2GraveCount;
+             // Update Dummy Hand Count
+             int targetHandCount = gameState.Player2HandCount;
+             // (Logic to match visual hand count to targetHandCount)
+             UpdateEnemyHandVisuals(targetHandCount);
+        }
+        else
+        {
+            // Guest Logic:
+            // 1. Push my stats (P2) to Host via RPC
+            //    We should throttle this slightly, not every frame? 
+            //    Or just every frame is fine for simple stats (NetworkRunner batches it?)
+            //    RPCs should NOT be sent every frame. Ideally only on change.
+            //    However, for simplicity, let's send if changed.
+            
+            SendStatsToHost(gameState);
+
+            // 2. Read Opponent (P1) stats from NetworkedVars
+            int enemyHp = gameState.Player1Hp;
+            
+            if (enemyLeaderObj != null) 
+            {
+                 Leader l = enemyLeaderObj.GetComponent<Leader>();
+                 if(l.currentHp != enemyHp) 
+                 {
+                     l.currentHp = enemyHp; 
+                     l.UpdateHPBar(); 
+                 }
+            }
+            
+            // Sync Counts (Opponent = P1)
+            enemyDeckCount = gameState.Player1DeckCount;
+            enemyGraveyardCount = gameState.Player1GraveCount;
+            
+            // Hand Count Sync
+            int targetHandCount = gameState.Player1HandCount;
+            UpdateEnemyHandVisuals(targetHandCount);
+
+            UpdateDeckGraveyardVisuals();
+        }
+    }
+    
+    private int _lastSentHp = -1;
+    private int _lastSentHand = -1;
+    private int _lastSentDeck = -1;
+    private int _lastSentGrave = -1;
+    
+    void SendStatsToHost(GameStateController gameState)
+    {
+         int myHp = playerLeader ? playerLeader.GetComponent<Leader>().currentHp : 0;
+         int myHand = hand.Count;
+         int myDeck = mainDeck.Count;
+         int myGrave = playerGraveyardCount;
+         
+         if (myHp != _lastSentHp || myHand != _lastSentHand || myDeck != _lastSentDeck || myGrave != _lastSentGrave)
+         {
+             _lastSentHp = myHp;
+             _lastSentHand = myHand;
+             _lastSentDeck = myDeck;
+             _lastSentGrave = myGrave;
+             
+             gameState.RPC_UpdatePlayerStats(myHand, myDeck, myGrave, myHp);
+         }
+    }
+
+    void UpdateEnemyHandVisuals(int targetCount)
+    {
+        if (enemyHandArea != null)
+        {
+            int current = enemyHandArea.childCount;
+            // Debug.Log($"[HandSync] Target: {targetCount}, Current: {current}");
+            
+            if (current < targetCount)
+            {
+                for(int i=current; i<targetCount; i++)
+                {
+                    if (cardBackPrefab != null) 
+                    {
+                        GameObject cardObj = Instantiate(cardBackPrefab, enemyHandArea);
+                        // Force generic Card Back properties
+                        cardObj.transform.localScale = Vector3.one;
+                        cardObj.transform.localPosition = Vector3.zero;
+                        
+                        // Force Ensure it is active/visible
+                        cardObj.SetActive(true);
+                        
+                        // Ensure layer match
+                        cardObj.layer = enemyHandArea.gameObject.layer; 
+                        
+                        // Adjust Z to avoid being hidden behind background?
+                        // Usually localPosition.z = 0 is safe for UI.
+                        
+                        // Debug Log
+                        // Debug.Log($"[HandSync] Spawned CardBack at {enemyHandArea.childCount-1}");
+                    }
+                    else
+                    {
+                        Debug.LogError("[GameManager] cardBackPrefab is NULL! Cannot render enemy hand.");
+                    }
+                }
+            }
+            else if (current > targetCount)
+            {
+                for(int i=current; i>targetCount; i--)
+                {
+                    if (enemyHandArea.childCount > 0) Destroy(enemyHandArea.GetChild(enemyHandArea.childCount - 1).gameObject);
+                }
+            }
+        }
+    }
     public void OnClickEndTurn() 
     { 
         if (!isPlayerTurn) return; 
+        isPlayerTurn = false; // ★Prevent Double Click
         StartCoroutine(EndTurnSequence()); 
     }
 
@@ -1185,7 +1377,17 @@ public class GameManager : MonoBehaviour
             cardObj.transform.localRotation = Quaternion.identity; 
             if (cg != null) cg.blocksRaycasts = true; 
 
-            if (isPlayer && !silent) BroadcastLog("カードを引いた", true); 
+            if (isPlayer && !silent) 
+            {
+                BroadcastLog("カードを引いた", true);
+                
+                // ★Notify Others
+                var gs = FindObjectOfType<GameStateController>();
+                if(gs != null && gs.Object != null && gs.Object.IsValid)
+                {
+                     gs.RPC_SyncDraw(gs.Runner.LocalPlayer, 1);
+                }
+            }
             else if (!isPlayer && !silent) BroadcastLog("相手がカードを引いた", false); 
 
             UpdateHandState(); 
@@ -1201,9 +1403,15 @@ public class GameManager : MonoBehaviour
         {
             if (gameState.Object.HasStateAuthority)
             {
-                Fusion.PlayerRef actor = gameState.Runner.LocalPlayer;
+                // Logic runs on Host.
+                // If it is Player Action -> Actor is Host (LocalPlayer)
+                // If it is NOT Player Action (Enemy Action) -> Actor is Guest (Opponent)
+                
+                Fusion.PlayerRef actor = gameState.Runner.LocalPlayer; // Default: Me (Host)
+                
                 if (!isPlayerAction)
                 {
+                    // Find the OTHER player (Guest)
                     foreach(var p in gameState.Runner.ActivePlayers) 
                     { 
                         if (p != gameState.Runner.LocalPlayer) { actor = p; break; } 
@@ -1289,6 +1497,7 @@ public class GameManager : MonoBehaviour
     #region Spell & Interaction
     void Update() 
     { 
+        SyncNetworkInfo();
         if (isTargetingMode && currentCastingCard != null) 
         { 
             if (Input.GetMouseButtonDown(1)) 
@@ -1371,7 +1580,7 @@ public class GameManager : MonoBehaviour
     {
         if (currentMana < card.cardData.cost)
         {
-            Debug.Log("No Mana");
+            // Debug.Log("No Mana");
             return;
         }
         currentCastingCard = card;
@@ -1385,15 +1594,30 @@ public class GameManager : MonoBehaviour
         card.GetComponent<CanvasGroup>().alpha = 0.5f; 
     }
 
-    public void StartSpellCast(CardView card)
+    public bool StartSpellCast(CardView card)
     {
-        if (currentMana < card.cardData.cost) { Debug.Log("No Mana"); return; }
+        if (currentMana < card.cardData.cost) 
+        {
+             // Warning feedback
+             return false; 
+        }
         currentCastingCard = card; 
         card.transform.SetParent(spellCastCenter); 
         card.transform.localPosition = Vector3.zero;
         arrowStartPos = spellCastCenter.position;
-        if (CheckIfSpellNeedsTarget(card.cardData)) { isTargetingMode = true; ShowArrow(arrowStartPos); SetArrowColor(Color.white); ShowUnitDetail(card.cardData); }
-        else { if (card.cardData.type == CardType.SPELL) ExecuteSpell(null); else CancelSpellCast(); }
+        if (CheckIfSpellNeedsTarget(card.cardData)) 
+        { 
+            isTargetingMode = true; 
+            ShowArrow(arrowStartPos); 
+            SetArrowColor(Color.white); 
+            ShowUnitDetail(card.cardData); 
+        }
+        else 
+        { 
+            if (card.cardData.type == CardType.SPELL) ExecuteSpell(null); 
+            else CancelSpellCast(); 
+        }
+        return true;
     }
 
     void TryCastSpellToTarget(GameObject targetObj)
@@ -1415,6 +1639,9 @@ public class GameManager : MonoBehaviour
                 if (runner != null && runner.IsRunning)
                 {
                     // オンライン: RPC送信
+                    // ★マナ消費 (-cost)
+                    if (!TryUseMana(currentCastingCard.cardData.cost)) return;
+                    
                     var gameState = FindObjectOfType<GameStateController>();
                     if (gameState != null)
                     {
@@ -1940,10 +2167,27 @@ public class GameManager : MonoBehaviour
         { 
             SlotInfo info = slot.gameObject.GetComponent<SlotInfo>(); 
             if (info == null) info = slot.gameObject.AddComponent<SlotInfo>(); 
-            int col = index / 2; 
+            
+            // ★User Defined Coordinate System
+            // Layout: 6 slots. 3 Cols x 2 Rows.
+            // Indices forms vertical pairs: [0,1], [2,3], [4,5]
+            // Code x = Col (User y). Code y = Row (User x).
+            
+            int col = index / 2; // Col 0, 1, 2
             info.x = col; 
-            if (!isEnemy) info.y = index % 2; 
-            else info.y = 1 - (index % 2); 
+            
+            if (!isEnemy) 
+            {
+                // Player: 0->Front(y0), 1->Back(y1)
+                info.y = index % 2; 
+            }
+            else 
+            {
+                // Enemy: 0->Back(y1), 1->Front(y0)
+                // User says: Enemy Index 1 is x0 (Front?). Enemy Index 0 is x1 (Back?).
+                info.y = 1 - (index % 2); 
+            }
+            
             info.isEnemySlot = isEnemy; 
             DropPlace dropPlace = slot.GetComponent<DropPlace>(); 
             if (dropPlace != null) dropPlace.isEnemySlot = isEnemy; 

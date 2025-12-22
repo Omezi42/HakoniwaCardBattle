@@ -79,8 +79,11 @@ public class Draggable : MonoBehaviour, IBeginDragHandler, IDragHandler, IEndDra
             if ((transform.parent == transform.root || transform.parent == originalParent.root) &&
                 Input.mousePosition.y > Screen.height * SPELL_CAST_THRESHOLD)
             {
-                GameManager.instance.StartSpellCast(cardView);
-                return; 
+                if (GameManager.instance.StartSpellCast(cardView))
+                {
+                    return; 
+                }
+                // If failed (No Mana), fall through to reset logic
             }
         }
 

@@ -64,9 +64,6 @@ public class GameStateController : NetworkBehaviour
 
     public override void Render()
     {
-        // _logTimer moved to Render for heartbeat debug (Removed for production cleanliness)
-        // _logTimer++;
-        
         CheckTurnUpdate();
         CheckJobUpdate();
     }
@@ -171,73 +168,129 @@ public class GameStateController : NetworkBehaviour
 
         ActivePlayer = sortedPlayers[nextIndex];
         TurnCount++;
-        
-        Debug.Log($"[GameState] Turn Toggled. New Active: {ActivePlayer}");
+        // Debug.Log($"[GameState] Turn Toggled. New Active: {ActivePlayer}"); // Removed Debug.Log
     }
 
+
+    // ★Networked HP & Counts (For Sync)
+    [Networked] public int Player1Hp { get; set; } = 30;
+    [Networked] public int Player2Hp { get; set; } = 30;
+    [Networked] public int Player1HandCount { get; set; }
+    [Networked] public int Player2HandCount { get; set; }
+    [Networked] public int Player1DeckCount { get; set; }
+    [Networked] public int Player2DeckCount { get; set; }
+    [Networked] public int Player1GraveCount { get; set; }
+    [Networked] public int Player2GraveCount { get; set; }
+
     // ★追加: スペル発動同期用RPC
-    [Rpc(RpcSources.All, RpcTargets.All)]
-    public void RPC_CastSpell(string cardId, int seed, NetworkId targetUnitId, bool isTargetEnemyLeader)
+    [Rpc(RpcSources.All, RpcTargets.StateAuthority)] // Logic runs ONLY on Host
+    public void RPC_CastSpell(string cardId, int seed, NetworkId targetUnitId, bool isTargetEnemyLeader, RpcInfo info = default)
     {
-        // RNG同期
+        // RNG Sync
         UnityEngine.Random.InitState(seed);
         
-        // カードデータのロード
+        // Load Card Data
         CardData card = null;
-        if (PlayerDataManager.instance != null)
-        {
-            card = PlayerDataManager.instance.GetCardById(cardId);
-        }
-        if (card == null)
-        {
-             card = Resources.Load<CardData>("Cards/" + cardId);
-        }
+        if (PlayerDataManager.instance != null) card = PlayerDataManager.instance.GetCardById(cardId);
+        if (card == null) card = Resources.Load<CardData>("Cards/" + cardId);
         if (card == null) return;
         
-        // ターゲットの特定
+        // Resolve Target
         object target = null;
         if (targetUnitId.IsValid)
         {
-            NetworkObject netObj = Runner.FindObject(targetUnitId);
-            if (netObj != null) target = netObj.GetComponent<UnitMover>();
+             NetworkObject netObj = Runner.FindObject(targetUnitId);
+             if (netObj != null) target = netObj.GetComponent<UnitMover>();
         }
         else if (isTargetEnemyLeader)
         {
-            // 発動者視点で「敵リーダー」
-            // 受信者視点で「自分」が発動者ならEnemyInfo
-            // 相手ならPlayerInfo
-            
-            // 簡易判定: GameStateController.ActivePlayer が発動者
-            // (RPCが届くのは実行後なので、ターンが変わっていなければActivePlayer=発動者)
-            bool amIActive = (Runner.LocalPlayer == ActivePlayer);
-            
-            if (amIActive) target = GameObject.Find("EnemyInfo")?.GetComponent<Leader>(); 
-            else target = GameObject.Find("PlayerInfo")?.GetComponent<Leader>(); 
+             // Sender was targeting "Enemy Leader".
+             // We need to map this to P1/P2 Leader based on who sent the RPC.
+             // If P1 sent it, target is P2. If P2 sent it, target is P1.
+             
+             // Simple Logic: If Sender == ActivePlayer, then target is the OTHER player.
+             PlayerRef sender = info.Source;
+             
+             // We can find Player1/Player2 refs from Runner.ActivePlayers (assuming 2 players)
+             // But simpler: just apply effect to "Opponent of Sender".
+             // Since we have Logic on Host, we can manipulate P1_Hp / P2_Hp directly?
+             // Or let AbilityManager handle it. 
+             // AbilityManager needs "Target Object". 
+             // We can pass the actual Leader GameObject (Local Host Object).
+             
+             bool senderIsP1 = (sender == Runner.ActivePlayers.OrderBy(p=>p.PlayerId).First());
+             // Target is P2 Leader if P1 cast, P1 Leader if P2 cast.
+             
+             // However, AbilityManager expects "Leader" component.
+             // On Host, we have PlayerLeader (Host's Leader) and EnemyInfo (Guest's Leader Representation).
+             // If Host is P1: P1=PlayerLeader, P2=EnemyInfo.
+             // If P1 cast (Host): Target is P2 (EnemyInfo).
+             // If P2 cast (Guest): Target is P1 (PlayerLeader).
+             
+             if (Runner.LocalPlayer == sender) target = GameObject.Find("EnemyInfo")?.GetComponent<Leader>();
+             else target = GameObject.Find("PlayerInfo")?.GetComponent<Leader>();
         }
 
-        // スペル効果発動
-        if (target != null)
-        {
-            AbilityManager.instance.ProcessAbilities(card, EffectTrigger.SPELL_USE, null, target);
-        }
-        else
-        {
-             // ターゲットなし
-             AbilityManager.instance.ProcessAbilities(card, EffectTrigger.SPELL_USE, null);
-        }
+        // Execute Logic (Host Only)
+        if (target != null) AbilityManager.instance.ProcessAbilities(card, EffectTrigger.SPELL_USE, null, target);
+        else AbilityManager.instance.ProcessAbilities(card, EffectTrigger.SPELL_USE, null);
 
-        AbilityManager.instance.TriggerSpellReaction(target == null ? true : false); // 簡易 reaction
-        // GameStateControllerはNetworkBehaviourなのでRunnerが使える
-        // アニメーション用
-        bool isMyAction = (Runner.LocalPlayer == ActivePlayer); 
+        AbilityManager.instance.TriggerSpellReaction(target == null); 
+
+        // Broadcast Visuals back to everyone
+        RPC_ShowSpellVisual(cardId, targetUnitId, isTargetEnemyLeader, info.Source);
+    }
+
+    [Rpc(RpcSources.StateAuthority, RpcTargets.All)]
+    public void RPC_ShowSpellVisual(string cardId, NetworkId targetUnitId, bool isTargetEnemyLeader, PlayerRef actor)
+    {
+        CardData card = null;
+        if (PlayerDataManager.instance != null) card = PlayerDataManager.instance.GetCardById(cardId);
+        if (card == null) card = Resources.Load<CardData>("Cards/" + cardId);
+        if (card == null) return;
+
+        bool isMyAction = (Runner.LocalPlayer == actor);
+        
         GameManager.instance.PlayDiscardAnimation(card, isMyAction);
         
         if (BattleLogManager.instance != null) 
         {
-            string actor = isMyAction ? "自分" : "敵";
-            BattleLogManager.instance.AddLog($"{actor}は {card.cardName} を唱えた", isMyAction, card);
+            string actorName = isMyAction ? "自分" : "敵";
+            BattleLogManager.instance.AddLog($"{actorName}は {card.cardName} を唱えた", isMyAction, card);
         }
         GameManager.instance.PlaySE(GameManager.instance.seSummon);
+    }
+
+    // ★Sync Draw (Notify others I drew)
+    [Rpc(RpcSources.All, RpcTargets.All)]
+    public void RPC_SyncDraw(PlayerRef actor, int count)
+    {
+        if (actor == Runner.LocalPlayer) return; // I drew, so I ignore.
+        
+        // Others (Enemy)
+        if (GameManager.instance != null)
+        {
+             GameManager.instance.EnemyDrawCard(count, false);
+        }
+    }
+
+    // Update Networked HP from Logic
+    public void UpdateNetworkHealth(bool isPlayer1, int newHp)
+    {
+        if (Object.HasStateAuthority)
+        {
+            if (isPlayer1) Player1Hp = newHp;
+            else Player2Hp = newHp;
+        }
+    }
+    
+    public void UpdateNetworkCounts(bool isPlayer1, int hand, int deck, int grave)
+    {
+        if (Object.HasStateAuthority)
+        {
+            if (isPlayer1) { Player1HandCount = hand; Player1DeckCount = deck; Player1GraveCount = grave; }
+            else { Player2HandCount = hand; Player2DeckCount = deck; Player2GraveCount = grave; }
+        }
     }
     // 先攻プレイヤー (Coin Tossで決定)
     // [Removed duplicate FirstPlayer]
@@ -309,7 +362,7 @@ public class GameStateController : NetworkBehaviour
     [Rpc(RpcSources.StateAuthority, RpcTargets.All)]
     public void RPC_StartMulligan(PlayerRef firstPlayer)
     {
-        Debug.Log($"[GameState] RPC_StartMulligan Called. First Player: {firstPlayer}. Checking GameManager instance...");
+        Debug.Log($"[GameState] RPC_StartMulligan Called. First Player: {firstPlayer}. Checking GameManager instance.");
         if (GameManager.instance != null)
         {
             Debug.Log("[GameState] GameManager.instance found. invoking StartMulliganSequence.");
@@ -329,11 +382,12 @@ public class GameStateController : NetworkBehaviour
 
     void CheckTurnUpdate()
     {
+        /*
         if (_logTimer % 60 == 0)
         {
-             // Debug.Log($"[GameState] CheckTurnUpdate. Started:{IsGameStarted} Turn:{TurnCount} Active:{ActivePlayer} LastActive:{_lastActivePlayer}");
-             Debug.Log($"[GameState] Heartbeat: Started={IsGameStarted} Turn={TurnCount} Active={ActivePlayer} LastActive={_lastActivePlayer} Local={Runner.LocalPlayer}");
+             // Debug.Log($"[GameState] Heartbeat: Started={IsGameStarted} Turn={TurnCount} Active={ActivePlayer} LastActive={_lastActivePlayer} Local={Runner.LocalPlayer}");
         }
+        */
 
         if (!IsGameStarted)
     {
@@ -370,7 +424,7 @@ public class GameStateController : NetworkBehaviour
             }
 
             // Guest also needs to know we are waiting here (Check flag to suppress wait if we know turn started)
-            if (!_descTurn1RPCReceived && _logTimer % 60 == 0)
+            if (!_descTurn1RPCReceived && _logTimer % 300 == 0) // Reduced frequency (once per 5s)
             {
                 Debug.Log($"[GameState] Waiting for Turn 1... Turn={TurnCount} P1Mul:{IsP1MulliganDone} P2Mul:{IsP2MulliganDone}");
             }
@@ -412,12 +466,12 @@ public class GameStateController : NetworkBehaviour
             IsP2MulliganDone = true;
             
             // Force turn update check immediately to ensure UI/GameManager syncs NOW
-            if (_lastActivePlayer != ActivePlayer)
-            {
-                 Debug.Log($"[GameState] RPC Prediction causing immediate Turn Change! From {_lastActivePlayer} to {ActivePlayer}");
-                 _lastActivePlayer = ActivePlayer;
-                 OnTurnChanged();
-            }
+             if (_lastActivePlayer != ActivePlayer)
+             {
+                  // Debug.Log($"[GameState] RPC Prediction causing immediate Turn Change! From {_lastActivePlayer} to {ActivePlayer}");
+                  _lastActivePlayer = ActivePlayer;
+                  OnTurnChanged();
+             }
         }
     }
 
@@ -433,7 +487,7 @@ public class GameStateController : NetworkBehaviour
         {
             if (GameManager.instance != null)
             {
-                Debug.Log($"[GameState] Force Draw {count} cards via RPC.");
+                // Debug.Log($"[GameState] Force Draw {count} cards via RPC.");
                 GameManager.instance.DealCards(count);
             }
         }
@@ -510,6 +564,48 @@ public class GameStateController : NetworkBehaviour
         if (BattleLogManager.instance != null)
         {
             BattleLogManager.instance.AddLog(text, isPlayerAction, card);
+        }
+    }
+    // ★追加: クライアントからホストへステータスを通知する
+    [Rpc(RpcSources.All, RpcTargets.StateAuthority)]
+    public void RPC_UpdatePlayerStats(int handCount, int deckCount, int graveCount, int currentHp, RpcInfo info = default)
+    {
+        // P1かP2か判定
+        var sorted = Runner.ActivePlayers.OrderBy(p => p.PlayerId).ToList();
+        if (sorted.Count > 0 && sorted[0] == info.Source)
+        {
+            Player1HandCount = handCount;
+            Player1DeckCount = deckCount;
+            Player1GraveCount = graveCount;
+            Player1Hp = currentHp;
+            // Debug.Log($"[GameState] Updated P1 Stats: HP={currentHp} Hand={handCount}");
+        }
+        else if (sorted.Count > 1 && sorted[1] == info.Source)
+        {
+            Player2HandCount = handCount;
+            Player2DeckCount = deckCount;
+            Player2GraveCount = graveCount;
+            Player2Hp = currentHp;
+            // Debug.Log($"[GameState] Updated P2 Stats: HP={currentHp} Hand={handCount}");
+        }
+    }
+
+    // ★追加: 効果ダメージなどを相手リーダーに与えるためのRPC
+    [Rpc(RpcSources.StateAuthority, RpcTargets.All)]
+    public void RPC_DirectDamageToLeader(PlayerRef targetPlayer, int damage)
+    {
+        // 自分宛てならダメージを受ける
+        if (Runner.LocalPlayer == targetPlayer)
+        {
+            if (GameManager.instance != null && GameManager.instance.playerLeader != null)
+            {
+                var leader = GameManager.instance.playerLeader.GetComponent<Leader>();
+                if (leader != null) 
+                {
+                    Debug.Log($"[GameState] Received Direct Damage from Host: {damage}");
+                    leader.TakeDamage(damage);
+                }
+            }
         }
     }
 }

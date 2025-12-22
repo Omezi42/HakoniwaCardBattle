@@ -75,7 +75,7 @@ public class Leader : MonoBehaviour, IDropHandler
         }
     }
 
-    void UpdateHPBar()
+    public void UpdateHPBar()
     {
         if (hpFillImage != null)
         {

@@ -19,12 +19,17 @@ public class AbilityManager : MonoBehaviour
 
     public void TriggerSpellReaction(bool isPlayerAction)
     {
+        Debug.Log($"[SpellReaction] Triggered. IsPlayer: {isPlayerAction}");
         Transform myBoard = isPlayerAction ? GameObject.Find("PlayerBoard").transform : GameManager.instance.enemyBoard;
         if (myBoard != null)
         {
             foreach (UnitMover unit in myBoard.GetComponentsInChildren<UnitMover>())
             {
-                if (unit.sourceData != null) ProcessAbilities(unit.sourceData, EffectTrigger.SPELL_USE, unit);
+                if (unit.sourceData != null) 
+                {
+                    // Debug.Log($"[SpellReaction] Checking unit: {unit.sourceData.cardName}");
+                    ProcessAbilities(unit.sourceData, EffectTrigger.SPELL_USE, unit);
+                }
             }
         }
 
@@ -49,6 +54,7 @@ public class AbilityManager : MonoBehaviour
 
     private void ExecuteBuildAbility(CardAbility ability, ActiveBuild build)
     {
+        Debug.Log($"[BuildEffect] Executing Ability: {ability.effect} for {(build.isPlayerOwner?"Player":"Enemy")} Build");
         List<object> targets = GetTargets(ability.target, null, null);
         if (targets.Count == 0 && (ability.effect == EffectType.DRAW_CARD || ability.effect == EffectType.GAIN_MANA))
         {
@@ -357,11 +363,49 @@ public class AbilityManager : MonoBehaviour
         {
             case EffectType.DAMAGE:
                 if (targetUnit != null) targetUnit.TakeDamage(value);
-                else if (target is Leader leader) leader.TakeDamage(value);
+                else if (target is Leader leader) 
+                {
+                    leader.TakeDamage(value);
+                    // ★Sync: If Host damages Enemy Leader (Dummy), tell Guest to take damage
+                    var gameState = FindObjectOfType<GameStateController>();
+                    if (gameState != null && gameState.Object.HasStateAuthority)
+                    {
+                         // Using name/tag check or just logic
+                         // If leader is NOT playerLeader, it's Enemy.
+                         if (GameManager.instance.playerLeader != null && leader.gameObject != GameManager.instance.playerLeader.gameObject)
+                         {
+                             // Find Enemy PlayerRef
+                             var enemyRef = Fusion.PlayerRef.None;
+                             foreach(var p in gameState.Runner.ActivePlayers) 
+                             {
+                                 if (p != gameState.Runner.LocalPlayer) { enemyRef = p; break; }
+                             }
+                             
+                             if (enemyRef != Fusion.PlayerRef.None)
+                             {
+                                 gameState.RPC_DirectDamageToLeader(enemyRef, value);
+                             }
+                         }
+                    }
+                }
                 break;
             case EffectType.HEAL:
                 if (targetUnit != null) targetUnit.Heal(value);
-                else if (target is Leader leader) leader.TakeDamage(-value);
+                else if (target is Leader leader) 
+                {
+                    leader.TakeDamage(-value);
+                     // ★Sync: Heal also needs sync if it hits Enemy Leader (unlikely but possible)
+                    var gameState = FindObjectOfType<GameStateController>();
+                    if (gameState != null && gameState.Object.HasStateAuthority)
+                    {
+                         if (GameManager.instance.playerLeader != null && leader.gameObject != GameManager.instance.playerLeader.gameObject)
+                         {
+                             var enemyRef = Fusion.PlayerRef.None;
+                             foreach(var p in gameState.Runner.ActivePlayers) { if (p != gameState.Runner.LocalPlayer) { enemyRef = p; break; } }
+                             if (enemyRef != Fusion.PlayerRef.None) gameState.RPC_DirectDamageToLeader(enemyRef, -value);
+                         }
+                    }
+                }
                 break;
             case EffectType.BUFF_ATTACK:
                 if (targetUnit != null) 
@@ -445,15 +489,28 @@ public class AbilityManager : MonoBehaviour
         // 2. Front Row にいないなら、Back Row (y=1) から選ぶ。
         //    優先順位: 正面の列 (Same X) -> ランダム
         
-        if (frontEnemies.Count > 0)
+        if (frontEnemies.Count > 0 && backEnemies.Count > 0)
         {
-            if (directFrontTarget != null) return directFrontTarget;
-            return frontEnemies[UnityEngine.Random.Range(0, frontEnemies.Count)];
+            // Front and Back both exist. User requested random targeting.
+            // Or maybe "Front Enemy" means "Front Row"?
+            // If the user wants "Random inside Front Row only", keep old logic.
+            // If user wants "Random between Front AND Back", combine them.
+            // User said: "正面の敵モンスターを対象にとる効果がおそらく前列優先になっているからこれを前列と後列両方いるなら完全ランダムになるようにしてほしい"
+            // So yes, combine them.
+            List<UnitMover> all = new List<UnitMover>();
+            all.AddRange(frontEnemies);
+            all.AddRange(backEnemies);
+            return all[UnityEngine.Random.Range(0, all.Count)];
+        }
+        else if (frontEnemies.Count > 0)
+        {
+             if (directFrontTarget != null && UnityEngine.Random.value < 0.5f) return directFrontTarget; // 50% chance for direct, 50% random in row? Or just random.
+             return frontEnemies[UnityEngine.Random.Range(0, frontEnemies.Count)];
         }
         else if (backEnemies.Count > 0)
         {
-            if (directBackTarget != null) return directBackTarget;
-            return backEnemies[UnityEngine.Random.Range(0, backEnemies.Count)];
+             if (directBackTarget != null && UnityEngine.Random.value < 0.5f) return directBackTarget;
+             return backEnemies[UnityEngine.Random.Range(0, backEnemies.Count)];
         }
 
         return null;
