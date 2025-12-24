@@ -100,12 +100,17 @@ public class OnlineMenuManager : MonoBehaviour
         {
             // Generate a random 4-digit Room ID
             string newRoomId = Random.Range(1000, 9999).ToString();
-            await NetworkConnectionManager.instance.StartSharedSession(newRoomId, "RoomScene");
+            // Create: joinOnly = false
+            await NetworkConnectionManager.instance.StartSharedSession(newRoomId, "RoomScene", false);
         }
         else
         {
-            // Join existing
-            await NetworkConnectionManager.instance.StartSharedSession(roomName, "RoomScene");
+            // Join: joinOnly = true
+            bool success = await NetworkConnectionManager.instance.StartSharedSession(roomName, "RoomScene", true);
+            if (!success)
+            {
+                SetStatus("Room Not Found.", Color.red);
+            }
         }
     }
 

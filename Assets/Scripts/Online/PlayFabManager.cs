@@ -16,7 +16,8 @@ public class PlayFabManager : MonoBehaviour
         {
             instance = this;
             DontDestroyOnLoad(gameObject);
-            PlayFab.PlayFabSettings.TitleId = "184DCC";
+            DontDestroyOnLoad(gameObject);
+            // PlayFab.PlayFabSettings.TitleId = "184DCC"; // Removed to use PlayFabSharedSettings
         }
         else
         {

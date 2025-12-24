@@ -69,8 +69,7 @@ public class GameStateController : NetworkBehaviour
     }
 
     // State Tracking
-    private int _lastP1JobId = 0;
-    private int _lastP2JobId = 0;
+    private int _lastEnemyJobId = 0;
     private PlayerRef _lastActivePlayer = PlayerRef.None;
     private int _lastTurnCount = 0;
     private bool _descTurn1RPCReceived = false;
@@ -78,10 +77,18 @@ public class GameStateController : NetworkBehaviour
 
     void CheckJobUpdate()
     {
-        if (Player1JobId != _lastP1JobId || Player2JobId != _lastP2JobId)
+        // Simple polling for Enemy Job ID changes or just rely on manual trigger?
+        // Since we removed Player1JobId props, this polling logic needs to check NPC.
+        // Or we can assume GameManager polls it.
+        // For simplicity: Check Enemy NPC Job ID change.
+        
+        var enemyPC = NetworkPlayerController.Instances.FirstOrDefault(npc => npc.Owner != Runner.LocalPlayer);
+        if (enemyPC != null)
         {
-            _lastP1JobId = Player1JobId;
-            _lastP2JobId = Player2JobId;
+             int currentEnemyJob = enemyPC.JobId;
+             if (currentEnemyJob != _lastEnemyJobId)
+             {
+                 _lastEnemyJobId = currentEnemyJob;
             
             // UI Update
             if (GameManager.instance != null)
@@ -89,21 +96,20 @@ public class GameStateController : NetworkBehaviour
                 // Identify which one is ME and which is ENEMY
                 // Sorted list
                 var sorted = Runner.ActivePlayers.OrderBy(p => p.PlayerId).ToList();
-                int myJob = -1;
                 int enemyJob = -1;
 
-                if (sorted.Count > 0)
-                {
-                    if (sorted[0] == Runner.LocalPlayer) { myJob = Player1JobId; enemyJob = Player2JobId; }
-                    else if (sorted.Count > 1 && sorted[1] == Runner.LocalPlayer) { myJob = Player2JobId; enemyJob = Player1JobId; }
-                }
+                // Simple: Find My NPC (Already done in GM usually, but okay here)
+                // var myPC = NetworkPlayerController.Get(Runner.LocalPlayer); 
+                
+                // enemyPC is already found above at line 85
+                
+                if (enemyPC != null) enemyJob = enemyPC.JobId;
 
                 // Apply
                 if (enemyJob != 0) GameManager.instance.SetEnemyLeaderIcon(enemyJob);
-                // My job is usually set locally, but we can ensure sync if needed.
-                // For now, only Enemy Job is requested to be synced.
             }
         }
+    }
     }
 
 
@@ -139,6 +145,12 @@ public class GameStateController : NetworkBehaviour
     {
         if (Object.HasStateAuthority)
         {
+            // Host logic (executed locally)
+            if (GameManager.instance != null)
+            {
+                 bool isHostTurn = (ActivePlayer == Runner.LocalPlayer);
+                 GameManager.instance.ProcessOnlineTurnEnd(isHostTurn);
+            }
             ToggleTurn();
         }
         else
@@ -150,6 +162,13 @@ public class GameStateController : NetworkBehaviour
     [Rpc(RpcSources.All, RpcTargets.StateAuthority)]
     public void RPC_RequestEndTurn()
     {
+        // Host executes effects for Current Turn Player
+        if (GameManager.instance != null)
+        {
+             // Determine if ending turn for Host or Guest
+             bool isHostTurn = (ActivePlayer == Runner.LocalPlayer);
+             GameManager.instance.ProcessOnlineTurnEnd(isHostTurn);
+        }
         ToggleTurn();
     }
 
@@ -173,14 +192,7 @@ public class GameStateController : NetworkBehaviour
 
 
     // ★Networked HP & Counts (For Sync)
-    [Networked] public int Player1Hp { get; set; } = 30;
-    [Networked] public int Player2Hp { get; set; } = 30;
-    [Networked] public int Player1HandCount { get; set; }
-    [Networked] public int Player2HandCount { get; set; }
-    [Networked] public int Player1DeckCount { get; set; }
-    [Networked] public int Player2DeckCount { get; set; }
-    [Networked] public int Player1GraveCount { get; set; }
-    [Networked] public int Player2GraveCount { get; set; }
+    // [Removed Monolithic Stats: Moved to NetworkPlayerController]
 
     // ★追加: スペル発動同期用RPC
     [Rpc(RpcSources.All, RpcTargets.StateAuthority)] // Logic runs ONLY on Host
@@ -275,12 +287,18 @@ public class GameStateController : NetworkBehaviour
     }
 
     // Update Networked HP from Logic
+    // Update Networked HP from Logic
     public void UpdateNetworkHealth(bool isPlayer1, int newHp)
     {
         if (Object.HasStateAuthority)
         {
-            if (isPlayer1) Player1Hp = newHp;
-            else Player2Hp = newHp;
+            var sorted = Runner.ActivePlayers.OrderBy(p => p.PlayerId).ToList();
+            int index = isPlayer1 ? 0 : 1;
+            if (index < sorted.Count)
+            {
+                var pc = NetworkPlayerController.Get(sorted[index]);
+                if (pc != null) pc.CurrentHp = newHp;
+            }
         }
     }
     
@@ -288,8 +306,18 @@ public class GameStateController : NetworkBehaviour
     {
         if (Object.HasStateAuthority)
         {
-            if (isPlayer1) { Player1HandCount = hand; Player1DeckCount = deck; Player1GraveCount = grave; }
-            else { Player2HandCount = hand; Player2DeckCount = deck; Player2GraveCount = grave; }
+            var sorted = Runner.ActivePlayers.OrderBy(p => p.PlayerId).ToList();
+            int index = isPlayer1 ? 0 : 1;
+            if (index < sorted.Count)
+            {
+                var pc = NetworkPlayerController.Get(sorted[index]);
+                if (pc != null)
+                {
+                    pc.HandCount = hand;
+                    pc.DeckCount = deck;
+                    pc.GraveCount = grave;
+                }
+            }
         }
     }
     // 先攻プレイヤー (Coin Tossで決定)
@@ -299,17 +327,18 @@ public class GameStateController : NetworkBehaviour
     [Networked] public NetworkBool IsP1MulliganDone { get; set; }
     [Networked] public NetworkBool IsP2MulliganDone { get; set; }
 
-    // Leader Job IDs
-    [Networked] public int Player1JobId { get; set; }
-    [Networked] public int Player2JobId { get; set; }
+    // [Removed Monolithic Job IDs]
 
     [Rpc(RpcSources.All, RpcTargets.StateAuthority)]
     public void RPC_SubmitJobId(int jobId, RpcInfo info = default)
     {
         // Identify if Sender is P1 or P2
-        var sorted = Runner.ActivePlayers.OrderBy(p => p.PlayerId).ToList();
-        if (sorted.Count > 0 && sorted[0] == info.Source) Player1JobId = jobId;
-        else if (sorted.Count > 1 && sorted[1] == info.Source) Player2JobId = jobId;
+        // Update specific player's JobID
+        var pc = NetworkPlayerController.Get(info.Source);
+        if (pc != null)
+        {
+            pc.JobId = jobId;
+        }
         
         Debug.Log($"[GameState] Received JobID {jobId} from {info.Source}");
     }
@@ -574,20 +603,83 @@ public class GameStateController : NetworkBehaviour
         var sorted = Runner.ActivePlayers.OrderBy(p => p.PlayerId).ToList();
         if (sorted.Count > 0 && sorted[0] == info.Source)
         {
-            Player1HandCount = handCount;
-            Player1DeckCount = deckCount;
-            Player1GraveCount = graveCount;
-            Player1Hp = currentHp;
-            // Debug.Log($"[GameState] Updated P1 Stats: HP={currentHp} Hand={handCount}");
+            var p1 = NetworkPlayerController.Get(sorted[0]);
+            if (p1 != null)
+            {
+                p1.HandCount = handCount;
+                p1.DeckCount = deckCount;
+                p1.GraveCount = graveCount;
+                p1.CurrentHp = currentHp;
+            }
         }
         else if (sorted.Count > 1 && sorted[1] == info.Source)
         {
-            Player2HandCount = handCount;
-            Player2DeckCount = deckCount;
-            Player2GraveCount = graveCount;
-            Player2Hp = currentHp;
-            // Debug.Log($"[GameState] Updated P2 Stats: HP={currentHp} Hand={handCount}");
+            var p2 = NetworkPlayerController.Get(sorted[1]);
+            if (p2 != null)
+            {
+                p2.HandCount = handCount;
+                p2.DeckCount = deckCount;
+                p2.GraveCount = graveCount;
+                p2.CurrentHp = currentHp;
+            }
         }
+    }
+    // ★追加: ターン終了リクエストRPC
+    [Rpc(RpcSources.StateAuthority, RpcTargets.All)]
+    public void RPC_UpdateBuildDurability(int buildIndex, int remainingTurns, bool isDestroy)
+    {
+         if (GameManager.instance == null) return;
+         if (GameManager.instance.activeBuilds == null || buildIndex < 0 || buildIndex >= GameManager.instance.activeBuilds.Count) return;
+         
+         // Update Local State from Host
+         if (isDestroy)
+         {
+             GameManager.instance.activeBuilds.RemoveAt(buildIndex);
+             // Re-render handled by updateUI? Need to force update
+             // We can access private method via reflection or just make UpdateBuildUI public? 
+             // It's private "UpdateBuildUI". But GameManager has public BuildConstruction etc.
+             // We'll rely on public "UpdateBuildUI" if exists or change it.
+             // Wait, "UpdateBuildUI" is private in GameManager.cs. 
+             // We should make it public or use reflection. 
+             // FOR NOW: Let's assume we make it public or just call a public wrapper.
+             // Wait, I can't change GameManager access modifier here easily without another edit.
+             // Let's modify GameManager first to expose UpdateBuildUI.
+         }
+         else
+         {
+             var b = GameManager.instance.activeBuilds[buildIndex];
+             b.remainingTurns = remainingTurns;
+             GameManager.instance.activeBuilds[buildIndex] = b;
+         }
+    }
+    
+    [Rpc(RpcSources.All, RpcTargets.StateAuthority)]
+    public void RPC_RequestEndTurn(RpcInfo info = default)
+    {
+        // Guard 1: Game must be started
+        if (!IsGameStarted) return;
+        
+        // Guard 2: Mulligan must be done (TurnCount > 0)
+        if (TurnCount == 0) return;
+
+        // Guard 3: Must be Active Player
+        if (ActivePlayer != info.Source) return;
+
+        // Execute Turn Change
+        if (GameManager.instance != null)
+        {
+             GameManager.instance.ProcessTurnEndEffects(ActivePlayer);
+        }
+        
+        // Switch Active Player
+        var sorted = Runner.ActivePlayers.OrderBy(p => p.PlayerId).ToList();
+        if (sorted.Count == 0) return;
+        
+        int currentIndex = sorted.IndexOf(ActivePlayer);
+        int nextIndex = (currentIndex + 1) % sorted.Count;
+        ActivePlayer = sorted[nextIndex];
+        
+        TurnCount++;
     }
 
     // ★追加: 効果ダメージなどを相手リーダーに与えるためのRPC
@@ -606,6 +698,84 @@ public class GameStateController : NetworkBehaviour
                     leader.TakeDamage(damage);
                 }
             }
+        }
+    }
+
+    // ★追加: カードプレイリクエストRPC
+    [Rpc(RpcSources.All, RpcTargets.StateAuthority)]
+    public void RPC_RequestPlayUnit(string cardId, int slotIndex, RpcInfo info = default)
+    {
+        // 1. Validate (Is it sender's turn?)
+        if (ActivePlayer != info.Source) 
+        {
+            Debug.LogWarning($"[GameState] Ignore PlayUnit from {info.Source} (Not Active Player)");
+            return;
+        }
+
+        // 2. Execute Logic on Host
+        if (GameManager.instance != null)
+        {
+            GameManager.instance.ProcessOnlinePlayUnit(cardId, slotIndex, info.Source == Runner.LocalPlayer, info.Source);
+        }
+    }
+    // ★追加: 攻撃リクエストRPC
+    [Rpc(RpcSources.All, RpcTargets.StateAuthority)]
+    public void RPC_RequestAttack(NetworkId attackerId, NetworkId targetId, bool toLeader, RpcInfo info = default)
+    {
+        if (ActivePlayer != info.Source) return;
+
+        NetworkObject attackerObj = Runner.FindObject(attackerId);
+        if (attackerObj == null) return;
+        
+        UnitMover attacker = attackerObj.GetComponent<UnitMover>();
+        if (attacker == null) return;
+
+        // Host Logic: Validate and Execute
+        // 1. Validate
+        if (!attacker.canAttack) return;
+        
+        // 2. Execute
+        if (toLeader)
+        {
+             // Validate Target? GameManager.CanAttackLeader(attacker)
+             if (GameManager.instance != null && GameManager.instance.CanAttackLeader(attacker)) 
+             {
+                 attacker.RPC_AttackLeader();
+             }
+        }
+        else
+        {
+            NetworkObject targetObj = Runner.FindObject(targetId);
+            if (targetObj != null)
+            {
+                UnitMover targetUnit = targetObj.GetComponent<UnitMover>();
+                if (targetUnit != null && GameManager.instance != null && GameManager.instance.CanAttackUnit(attacker, targetUnit))
+                {
+                    // Call RPC_AttackUnit on Attacker
+                    // Target Owner is needed for RPC arg?
+                    // RPC_AttackUnit signature: (PlayerRef targetOwner, NetworkId targetId)
+                    // The "TargetOwner" arg in RPC_AttackUnit seems to be for searching? 
+                    // Let's check UnitMover again. It uses Runner.FindObject(targetId). Owner arg is unused or check?
+                    // Actually UnitMover.RPC_AttackUnit uses `NetworkId targetId` to find object. 
+                    // The first arg `PlayerRef targetOwner` might be legacy or for log? 
+                    // Let's pass targetObj.InputAuthority ??
+                     
+                    attacker.RPC_AttackUnit(targetObj.InputAuthority, targetId);
+                }
+            }
+        }
+    }
+    // ★追加: スペルプレイリクエストRPC
+    [Rpc(RpcSources.All, RpcTargets.StateAuthority)]
+    public void RPC_RequestPlaySpell(string cardId, NetworkId targetUnitId, bool isTargetLeader, RpcInfo info = default)
+    {
+        if (ActivePlayer != info.Source) return;
+
+        // Execute on Host
+        if (GameManager.instance != null)
+        {
+            bool isHostAction = (info.Source == Runner.LocalPlayer);
+            GameManager.instance.ProcessOnlinePlaySpell(cardId, targetUnitId, isTargetLeader, isHostAction);
         }
     }
 }

@@ -41,20 +41,23 @@ public class NetworkConnectionManager : MonoBehaviour, INetworkRunnerCallbacks
 
     // ■ ルームマッチ (ID指定: 参加/作成 共通)
     // OnlineMenuManagerから呼ばれる
-    public async Task StartSharedSession(string sessionName, string sceneName)
+    // ■ ルームマッチ (ID指定: 参加/作成 共通)
+    // OnlineMenuManagerから呼ばれる
+    public async Task<bool> StartSharedSession(string sessionName, string sceneName, bool joinOnly = false)
     {
-        await StartGame(sessionName, GameMode.Shared, sceneName);
+        return await StartGame(sessionName, GameMode.Shared, sceneName, joinOnly);
     }
     
     // ■ ルームマッチ (旧: ID指定参加)
-    public async void StartRoomMatch(string roomID)
+    public async Task<bool> StartRoomMatch(string roomID)
     {
         if (string.IsNullOrEmpty(roomID)) 
         {
             Debug.LogError("Room ID is empty");
-            return;
+            return false;
         }
-        await StartGame(roomID, GameMode.Shared, "SampleScene"); // Default to SampleScene if legacy call
+        // Join Only mode
+        return await StartGame(roomID, GameMode.Shared, "SampleScene", true); 
     }
 
     // ■ ルームマッチ (旧: ID生成作成)
@@ -67,8 +70,6 @@ public class NetworkConnectionManager : MonoBehaviour, INetworkRunnerCallbacks
 
     private GameObject _runnerInstance;
 
-    // ■ ランダムマッチ
-    // ■ ランダムマッチ
     // ■ ランダムマッチ
     public async Task StartRandomMatch()
     {
@@ -93,7 +94,7 @@ public class NetworkConnectionManager : MonoBehaviour, INetworkRunnerCallbacks
     {
         foreach (var session in sessions)
         {
-            if (session.IsOpen && session.PlayerCount < session.MaxPlayers)
+            if (session.IsOpen && session.PlayerCount < session.MaxPlayers && session.Name.StartsWith("Random_"))
             {
                 Debug.Log($"Found open session: {session.Name}, Joining...");
                 await StartGame(session.Name, GameMode.Shared);
@@ -137,7 +138,7 @@ public class NetworkConnectionManager : MonoBehaviour, INetworkRunnerCallbacks
     }
 
     // 共通接続処理
-    async Task StartGame(string sessionName, GameMode mode = GameMode.Shared, string specificSceneName = null)
+    async Task<bool> StartGame(string sessionName, GameMode mode = GameMode.Shared, string specificSceneName = null, bool joinOnly = false)
     {
         // 念のためRunnerの状態をチェック
         if (_runner != null && _runner.IsRunning)
@@ -160,10 +161,10 @@ public class NetworkConnectionManager : MonoBehaviour, INetworkRunnerCallbacks
         {
             Debug.LogError($"Scene '{gameSceneName}' not found in Build Settings at path: {scenePath}");
             Debug.LogError("Please add the scene to File > Build Settings.");
-            return;
+            return false;
         }
         
-        Debug.Log($"Starting Game with Scene: {targetScene} (Index: {sceneIndex}) in Session: {sessionName} Mode: {mode}");
+        Debug.Log($"Starting Game with Scene: {targetScene} (Index: {sceneIndex}) in Session: {sessionName} Mode: {mode} JoinOnly: {joinOnly}");
 
         // SceneManagerは明示的に追加し、引数で渡す (Fusion 2の推奨パターン)
         var sceneManager = _runnerInstance.GetComponent<NetworkSceneManagerDefault>();
@@ -195,16 +196,18 @@ public class NetworkConnectionManager : MonoBehaviour, INetworkRunnerCallbacks
             SceneManager = sceneManager,
             ObjectProvider = objProvider,
             CustomPhotonAppSettings = customAppSettings
+            // DisableClientSessionCreation = joinOnly // Removed: Not available in this Fusion version
         });
 
         if (result.Ok)
         {
             Debug.Log($"Connected to Session: {sessionName}");
-            // Spawn logic moved to OnSceneLoadDone to prevent premature spawn and destruction in RoomScene
+            return true;
         }
         else
         {
             Debug.LogError($"Failed to Start: {result.ShutdownReason}");
+            return false;
         }
     }
 
@@ -253,7 +256,26 @@ public class NetworkConnectionManager : MonoBehaviour, INetworkRunnerCallbacks
         CheckAndSpawnGameState();
     }
 
-    public void OnPlayerJoined(NetworkRunner runner, PlayerRef player) { Debug.Log($"Player Joined: {player}"); }
+    [SerializeField] private NetworkObject playerControllerPrefab; // [NEW]
+
+    public void OnPlayerJoined(NetworkRunner runner, PlayerRef player) 
+    { 
+        Debug.Log($"Player Joined: {player}"); 
+        
+        if (runner.IsServer && playerControllerPrefab != null)
+        {
+            // Spawn NetworkPlayerController for the new player
+            // Assign Input Authority to the player
+            var playerObj = runner.Spawn(playerControllerPrefab, Vector3.zero, Quaternion.identity, player);
+            var pc = playerObj.GetComponent<NetworkPlayerController>();
+            if (pc != null)
+            {
+                pc.Owner = player;
+                Debug.Log($"Spawned NetworkPlayerController for {player}. Set Owner to {player}");
+            }
+            Debug.Log($"Spawned NetworkPlayerController for {player}");
+        }
+    }
     public void OnPlayerLeft(NetworkRunner runner, PlayerRef player) { Debug.Log($"Player Left: {player}"); }
     public void OnShutdown(NetworkRunner runner, ShutdownReason shutdownReason) { Debug.Log($"Shutdown: {shutdownReason}"); }
     public void OnConnectedToServer(NetworkRunner runner) { }

@@ -305,6 +305,7 @@ MonoBehaviour:
     ownedCardIds: []
     decks: []
     currentDeckIndex: 0
+  cpuDifficulty: 0
 --- !u!4 &121358119
 Transform:
   m_ObjectHideFlags: 0
