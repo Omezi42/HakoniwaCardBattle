@@ -88,24 +88,45 @@ public class DropPlace : MonoBehaviour, IDropHandler, IPointerEnterHandler, IPoi
                         // Validate Mana (Local Predication)
                         if (GameManager.instance.currentMana >= draggedCard.cardData.cost)
                         {
-                            // Send Request
-                            gameState.RPC_RequestPlayUnit(draggedCard.cardData.id, transform.GetSiblingIndex());
-                            
-                            // Local Cleanup (Visuals/State)
-                            GameManager.instance.TryUseMana(draggedCard.cardData.cost);
-                            GameManager.instance.hand.Remove(draggedCard.cardData);
-                            Destroy(draggedCard.gameObject);
-                            // Do NOT spawn unit locally. Host will spawn NetworkObject.
-                            return;
-                        }
+                    // Send Request
+                    gameState.RPC_RequestPlayUnit(draggedCard.cardData.id, transform.GetSiblingIndex());
+                    
+                    // Local Cleanup (Visuals/State)
+                    // ★FIX: Host (StateAuthority) should NOT do local cleanup here, 
+                    // because generic logic in ProcessOnlinePlayUnit will do it.
+                    // Doing it here causes Double Mana Consumption for Host.
+                    // Guest (Proxy) needs Prediction, so keep it.
+                    bool isHost = (NetworkConnectionManager.instance.Runner.IsServer || NetworkConnectionManager.instance.Runner.IsSharedModeMasterClient);
+                    if (!isHost)
+                    {
+                        GameManager.instance.TryUseMana(draggedCard.cardData.cost);
+                        GameManager.instance.hand.Remove(draggedCard.cardData);
+                        Destroy(draggedCard.gameObject);
                     }
+                    else
+                    {
+                        // Host: Just return. ProcessOnlinePlayUnit (RPC) will execute and handle Logic + Visuals.
+                        // But we might want to hide the dragged card immediately to prevent dragability?
+                        // Usually RPC is fast enough. Or we can just set alpha to 0?
+                        // For now, trust RPC.
+                    }
+                    // Do NOT spawn unit locally. Host will spawn NetworkObject.
+                    return;
                 }
+            } // End if (gameState != null)
+        } // End if (isOnline)
                 
                 // Offline Logic
                 if (GameManager.instance.TryUseMana(draggedCard.cardData.cost))
                 {
                     GameManager.instance.PlaySE(GameManager.instance.seSummon);
                     
+                    // ★追加：手札データから確実に削除
+                    if (GameManager.instance.hand.Contains(draggedCard.cardData))
+                    {
+                        GameManager.instance.hand.Remove(draggedCard.cardData);
+                    }
+
                     GameObject prefab = GameManager.instance.playerUnitPrefab;
                     if(prefab == null) prefab = GameManager.instance.unitPrefabForEnemy;
 

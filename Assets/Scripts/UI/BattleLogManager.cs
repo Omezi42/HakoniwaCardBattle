@@ -126,7 +126,7 @@ public class BattleLogManager : MonoBehaviour
         
         if (txt)
         {
-            txt.text = $"--- TURN {turn} ---";
+            txt.text = $"--- {turn} ターン目 ---";
             
             // 通常プレハブで代用している場合のみ、色や配置を強制変更
             if (prefabToUse == logTextPrefab)

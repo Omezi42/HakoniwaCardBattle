@@ -125,6 +125,13 @@ public class MenuManager : MonoBehaviour
     {
         deckSelectPopup.SetActive(true);
         SetupDeckManager();
+        // Offline Mode: Ensure Start Button is visible
+        if (startBattleButton) startBattleButton.gameObject.SetActive(true);
+    }
+    
+    public void SetStartButtonActive(bool active)
+    {
+        if (startBattleButton) startBattleButton.gameObject.SetActive(active);
     }
 
     public void OnClickEditDeck()

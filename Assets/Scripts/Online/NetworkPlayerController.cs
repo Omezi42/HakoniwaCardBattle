@@ -28,9 +28,12 @@ public class NetworkPlayerController : NetworkBehaviour
     public override void Spawned()
     {
         Instances.Add(this);
-        DontDestroyOnLoad(gameObject); // Persist across scene loads if necessary
         
-        Debug.Log($"[NetworkPlayerController] Spawned. Owner: {Owner}, ID: {Object.Id}");
+        // ★FIX: We MUST use DontDestroyOnLoad if controllers are spawned in a lobby/room scene 
+        // that transitions to the game scene. Otherwise they are destroyed on load.
+        DontDestroyOnLoad(gameObject);
+        
+        Debug.Log($"[NetworkPlayerController] Spawned. Owner: {Owner}, ID: {Object.Id}, InputAuthority: {Object.InputAuthority}");
         
         OnPlayerSpawned?.Invoke(this);
         
@@ -54,6 +57,8 @@ public class NetworkPlayerController : NetworkBehaviour
     {
         foreach(var pc in Instances)
         {
+            // [Fix] Check both InputAuthority and [Networked] Owner as fallback
+            if (pc.Object != null && pc.Object.InputAuthority == player) return pc;
             if (pc.Owner == player) return pc;
         }
         return null;

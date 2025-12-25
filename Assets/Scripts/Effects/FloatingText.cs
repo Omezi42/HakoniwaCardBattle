@@ -16,17 +16,23 @@ public class FloatingText : MonoBehaviour
         if (textMesh == null) textMesh = GetComponentInChildren<TextMeshProUGUI>();
     }
 
-    public void Setup(int damage)
+    public void Setup(int val)
     {
-        // ダメージ量によって色を変えたりテキストを変えたりできる
-        if (damage > 0)
+        if (textMesh == null)
         {
-            textMesh.text = "-" + damage.ToString();
-            textMesh.color = new Color(1f, 0.2f, 0.2f); // 赤色
+            textMesh = GetComponentInChildren<TextMeshProUGUI>();
+            if (textMesh == null) return;
         }
-        else if (damage < 0) // 回復の場合
+
+        // val > 0 はダメージ（通常）、val < 0 は回復
+        if (val > 0)
         {
-            textMesh.text = "+" + Mathf.Abs(damage).ToString();
+            textMesh.text = "-" + val.ToString();
+            textMesh.color = Color.red;
+        }
+        else if (val < 0)
+        {
+            textMesh.text = "+" + Mathf.Abs(val).ToString();
             textMesh.color = Color.green;
         }
         else
@@ -34,7 +40,12 @@ public class FloatingText : MonoBehaviour
             textMesh.text = "0";
             textMesh.color = Color.gray;
         }
+
+        // 確実に反映させる
+        textMesh.ForceMeshUpdate();
     }
+
+    public float lifeTime = 1.5f;
 
     void Update()
     {
@@ -42,10 +53,15 @@ public class FloatingText : MonoBehaviour
         transform.position += Vector3.up * moveSpeed * Time.deltaTime;
 
         // フェードアウト
-        canvasGroup.alpha -= fadeSpeed * Time.deltaTime;
+        if (canvasGroup != null)
+        {
+            canvasGroup.alpha -= fadeSpeed * Time.deltaTime;
+        }
 
-        // 透明になったら消す
-        if (canvasGroup.alpha <= 0)
+        lifeTime -= Time.deltaTime;
+
+        // 透明になったら、あるいは時間が経過したら消す
+        if (lifeTime <= 0 || (canvasGroup != null && canvasGroup.alpha <= 0))
         {
             Destroy(gameObject);
         }

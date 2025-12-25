@@ -73,7 +73,9 @@ public class UnitMover : NetworkBehaviour, IBeginDragHandler, IDragHandler, IEnd
         }
 
         // Proxy(相手)として初期化、あるいは自分のユニットの同期受信
-        bool isMine = (Object != null && Object.IsValid) ? Object.HasInputAuthority : false;
+        // bool isMine = (Object != null && Object.IsValid) ? Object.HasInputAuthority : false;
+        bool isMine = (Object != null && Object.IsValid) ? (OwnerPlayer == Runner.LocalPlayer) : false;
+        
         if (data != null) 
         {
             Initialize(data, isMine);
@@ -92,6 +94,7 @@ public class UnitMover : NetworkBehaviour, IBeginDragHandler, IDragHandler, IEnd
     public int spellDamageBonus = 0;
     private bool isAnimating = false;
     private Vector3 dragStartPos;
+    private int _currentVisualHealth; // ★Added for change detection
 
     public bool IsTauntActive
     {
@@ -114,6 +117,7 @@ public class UnitMover : NetworkBehaviour, IBeginDragHandler, IDragHandler, IEnd
 
     [Networked] public int NetworkedSlotX { get; set; } = -1;
     [Networked] public int NetworkedSlotY { get; set; } = -1;
+    [Networked] public PlayerRef OwnerPlayer { get; set; } // ★Added for robust ownership check
     
     [Networked] public NetworkString<_32> _netCardId { get; set; }
     [Networked] public int _netAttackPower { get; set; }
@@ -127,6 +131,12 @@ public class UnitMover : NetworkBehaviour, IBeginDragHandler, IDragHandler, IEnd
     public override void Spawned()
     {
         _changes = GetChangeDetector(ChangeDetector.Source.SimulationState);
+
+        // ★FIX: Disable NetworkTransform to allow Local Mirroring
+        // Since Host(Top) and Guest(Bottom) have different World Positions for the "Same" logical slot,
+        // we cannot use NetworkTransform for position sync.
+        var netTransform = GetComponent<NetworkTransform>();
+        if (netTransform != null) netTransform.enabled = false;
 
         // ネットワークオブジェクトが生成された時の初期化
         if (HasStateAuthority)
@@ -182,8 +192,19 @@ public class UnitMover : NetworkBehaviour, IBeginDragHandler, IDragHandler, IEnd
                 case nameof(NetworkedSlotY):
                     SyncParentSlot();
                     break;
+                case nameof(OwnerPlayer): // ★Fix: Re-sync parent if ownership changes (e.g. late assignment)
+                    SyncParentSlot();
+                    break;
                 case nameof(_netAttackPower):
                 case nameof(_netHealth):
+                    // ★Fix: Detect Damage for Visual Text on ALL clients
+                    int damage = _currentVisualHealth - _netHealth;
+                    if (damage > 0)
+                    {
+                        if (GameManager.instance != null) GameManager.instance.SpawnDamageText(transform.position, damage);
+                    }
+                    _currentVisualHealth = _netHealth;
+                    
                     if (unitView != null) unitView.RefreshDisplay();
                     break;
                 case nameof(_netHasStealth):
@@ -208,13 +229,13 @@ public class UnitMover : NetworkBehaviour, IBeginDragHandler, IDragHandler, IEnd
     
     // ... (SyncParentSlot and Initialize remain similar, removed duplicates for brevity in edit)
     
-     void SyncParentSlot()
+    void SyncParentSlot()
     {
         if (GameManager.instance == null) return;
         
-        // ★FIX: Use HasInputAuthority to determine ownership (Guest has InputAuth for their units)
-        bool isMine = (Object != null && Object.IsValid) ? Object.HasInputAuthority : true;
-        Transform targetBoard = isMine ? GameObject.Find("PlayerBoard")?.transform : GameObject.Find("EnemyBoard")?.transform;
+        // ★FIX: Use OwnerPlayer (Networked) to determine board.
+        bool isMyUnit = (Object != null && Object.IsValid) ? (OwnerPlayer == Runner.LocalPlayer) : isPlayerUnit;
+        Transform targetBoard = isMyUnit ? GameObject.Find("PlayerBoard")?.transform : GameObject.Find("EnemyBoard")?.transform;
 
         if (targetBoard != null && NetworkedSlotX != -1 && NetworkedSlotY != -1)
         {
@@ -230,7 +251,7 @@ public class UnitMover : NetworkBehaviour, IBeginDragHandler, IDragHandler, IEnd
                     return;
                 }
             }
-            Debug.Log($"[UnitMover] SyncParentSlot Failed: Slot ({NetworkedSlotX}, {NetworkedSlotY}) not found on {targetBoard.name}. IsMine: {isMine}, HasInputAuth: {Object?.HasInputAuthority}");
+            Debug.Log($"[UnitMover] SyncParentSlot Failed: Slot ({NetworkedSlotX}, {NetworkedSlotY}) not found on {targetBoard.name}. IsPlayerUnit: {isPlayerUnit}, HasInputAuth: {Object?.HasInputAuthority}");
         }
     }
     
@@ -288,6 +309,9 @@ public class UnitMover : NetworkBehaviour, IBeginDragHandler, IDragHandler, IEnd
                 unitView.RefreshStatusIcons(hasTaunt, hasStealth);
             }
         }
+        
+        // Initialize Visual Health Tracker
+        _currentVisualHealth = health;
 
         foreach(var ability in data.abilities)
         {
@@ -362,6 +386,13 @@ public class UnitMover : NetworkBehaviour, IBeginDragHandler, IDragHandler, IEnd
     public void Attack(Leader target, bool force = false) 
     { 
         if (!canAttack && !force) return; 
+
+        // ★追加: 自分（味方）のリーダーには攻撃できないようにする
+        if (target != null && target.isPlayer == this.isPlayerUnit)
+        {
+            Debug.Log("[UnitMover] Cannot attack allied leader.");
+            return;
+        }
         
         // オンラインなら
         if (Object != null && Object.IsValid)
@@ -422,17 +453,27 @@ public class UnitMover : NetworkBehaviour, IBeginDragHandler, IDragHandler, IEnd
     public void RPC_AttackLeader()
     {
         // 攻撃実行 (受信側で「敵リーダー」への攻撃として再生)
-        // 注意: 実行者が「自分」なら EnemyLeader、実行者が「敵」なら PlayerLeader が対象
+        // 注意: 実行者が「自分(ローカル)」なら EnemyLeader、実行者が「敵」なら PlayerLeader が対象
         Leader target = null;
-        if (HasStateAuthority) 
+        
+        // ★FIX: Use OwnerPlayer property for robust target determination
+        // ★修正: 物理名（EnemyInfo/PlayerInfo）に依存せず、論理的な属性でターゲットを決定
+        // 攻撃者が「自分」側か「相手」側かを、そのクライアントにおける isPlayerUnit で判定
+        // RPC_AttackLeader は StateAuthority(Host) から全クライアントへ飛ぶ
+        
+        if (this.isPlayerUnit) 
         {
-            // 自分が攻撃者の場合 -> 敵リーダーを攻撃
+            // このユニットが「プレイヤー（下側）」所属の場合 -> 敵リーダー（上側）を攻撃
             target = GameObject.Find("EnemyInfo")?.GetComponent<Leader>();
+            // 念のためフォールバック
+            if (target == null) target = GameObject.Find("EnemyLeader")?.GetComponent<Leader>();
         }
         else
         {
-            // 相手が攻撃者の場合 -> 自分(プレイヤー)のリーダーを攻撃されている
+            // このユニットが「エネミー（上側）」所属の場合 -> プレイヤーリーダー（下側）を攻撃
             target = GameObject.Find("PlayerInfo")?.GetComponent<Leader>();
+            // 念のためフォールバック
+            if (target == null) target = GameObject.Find("PlayerLeader")?.GetComponent<Leader>();
         }
 
         if (target != null)
@@ -451,12 +492,11 @@ public class UnitMover : NetworkBehaviour, IBeginDragHandler, IDragHandler, IEnd
             StartCoroutine(TackleAnimation(target.atkArea != null ? target.atkArea : target.transform, () => 
             {
                 GameManager.instance.PlaySE(GameManager.instance.seAttack);
-                // ダメージ適用はここで行うが、LeaderはNetworkObjectではないので
-                // 各クライアントでHPが減るだけになる(同期ズレのリスクあり)。
-                // 本来はLeaderも同期すべきだが、今回は簡易的に双方で減算。
-                // ただし、勝敗判定がズレないよう注意。
+                // ★FIX: Spawn text at the 'Attack Point' (current unit position) instead of leader position
+                GameManager.instance.SpawnDamageText(transform.position + new Vector3(0, 50, 0), attackPower);
+                
                 target.TakeDamage(attackPower);
-                ConsumeAttack(); // 表示のみ
+                ConsumeAttack(); 
             }));
             
             // 自分の行動権消費
@@ -608,11 +648,10 @@ public class UnitMover : NetworkBehaviour, IBeginDragHandler, IDragHandler, IEnd
             RPC_ApplyDamage(damage);
             
             // 演出だけ先行して見せる(HPは変わらない)
-            GameManager.instance.SpawnDamageText(transform.position, damage);
             return;
         }
 
-        GameManager.instance.SpawnDamageText(transform.position, damage);
+        // GameManager.instance.SpawnDamageText(transform.position, damage); // ★Removed: Handled in Render
         health -= damage;
         
         if (unitView != null) unitView.RefreshDisplay();
@@ -644,6 +683,11 @@ public class UnitMover : NetworkBehaviour, IBeginDragHandler, IDragHandler, IEnd
     private System.Collections.IEnumerator TackleAnimation(Transform target, System.Action onHitLogic) 
     { 
         isAnimating = true; 
+        
+        // [Fix] Capture current parent IMMEDIATELY before detaching.
+        // This ensures the unit returns to its actual slot even if originalParent wasn't set.
+        Transform currentParent = transform.parent;
+        
         transform.SetParent(transform.root); 
         Vector3 startPos = transform.position; 
         Vector3 targetPos = target.position; 
@@ -668,16 +712,96 @@ public class UnitMover : NetworkBehaviour, IBeginDragHandler, IDragHandler, IEnd
             yield return null; 
         } 
         
-        if (originalParent != null) 
+        // [Fix] Restore to the captured parent
+        if (currentParent != null) 
         { 
-            transform.SetParent(originalParent); 
+            transform.SetParent(currentParent); 
             transform.localPosition = Vector3.zero; 
+            originalParent = currentParent; // Sync our internal tracker as well
         } 
         isAnimating = false; 
     }
     
     // ... (rest of methods) ...
-    public void MoveToSlot(Transform targetSlot, System.Action onComplete = null) { StartCoroutine(MoveAnimation(targetSlot, onComplete)); }
+    public void MoveToSlot(Transform targetSlot, System.Action onComplete = null) 
+    { 
+        // ★FIX: Online Sync - Request move to Host
+        if (Object != null && Object.IsValid && !HasStateAuthority)
+        {
+             SlotInfo info = targetSlot.GetComponent<SlotInfo>();
+             if (info != null)
+             {
+                 RPC_MoveToSlot(info.x, info.y);
+             }
+        }
+
+        // ★FIX: Online Sync - Host broadcasts move to others
+        if (Object != null && Object.IsValid && HasStateAuthority)
+        {
+             SlotInfo info = targetSlot.GetComponent<SlotInfo>();
+             if (info != null)
+             {
+                 RPC_BroadcastAnimateMove(info.x, info.y);
+             }
+        }
+
+        StartCoroutine(MoveAnimation(targetSlot, onComplete)); 
+    }
+
+    [Rpc(RpcSources.StateAuthority, RpcTargets.All)]
+    public void RPC_BroadcastAnimateMove(int x, int y)
+    {
+        // 既にアニメーション中ならスキップ（自分が移動元なら既に動いているはずだが念のため）
+        if (isAnimating) return;
+
+        bool isMyUnit = (Object != null && Object.IsValid) ? (OwnerPlayer == Runner.LocalPlayer) : isPlayerUnit;
+        Transform targetBoard = isMyUnit ? GameObject.Find("PlayerBoard")?.transform : GameObject.Find("EnemyBoard")?.transform;
+
+        if (targetBoard != null)
+        {
+            foreach (Transform slot in targetBoard)
+            {
+                SlotInfo info = slot.GetComponent<SlotInfo>();
+                if (info != null && info.x == x && info.y == y)
+                {
+                    StartCoroutine(MoveAnimation(slot, null));
+                    return;
+                }
+            }
+        }
+    }
+    
+    [Rpc(RpcSources.InputAuthority, RpcTargets.StateAuthority)]
+    public void RPC_MoveToSlot(int x, int y)
+    {
+         // Host receives request from Guest to move THIS unit to (x, y)
+         // Determine target board (EnemyBoard from Host perspective)
+         // However, standard logic: Host has UnitMover.isPlayerUnit = false (for Guest unit).
+         // So MoveToSlot should naturally target EnemyBoard?
+         // UnitMover.MoveToSlot() takes a Transform.
+         // We must find the slot Transform on the correct board.
+         
+         Transform targetBoard = null;
+         
+         // If Owner is Host -> PlayerBoard
+         // If Owner is Guest -> EnemyBoard
+         if (OwnerPlayer == Runner.LocalPlayer) targetBoard = GameObject.Find("PlayerBoard").transform;
+         else targetBoard = GameObject.Find("EnemyBoard").transform;
+         
+         if (targetBoard != null)
+         {
+             foreach(Transform slot in targetBoard)
+             {
+                 SlotInfo info = slot.GetComponent<SlotInfo>();
+                 if (info != null && info.x == x && info.y == y)
+                 {
+                     MoveToSlot(slot); // Host moves it physically + Updates NetworkedSlotX/Y at end
+                     return;
+                 }
+             }
+         }
+    }
+
     private System.Collections.IEnumerator MoveAnimation(Transform targetSlot, System.Action onComplete) 
     { 
         isAnimating = true; 
@@ -694,15 +818,18 @@ public class UnitMover : NetworkBehaviour, IBeginDragHandler, IDragHandler, IEnd
         } 
         transform.position = endPos; 
         
-        // Finalize Parent
+        // Finalize Parent (Local Logic)
         if (targetSlot != null) 
         {
+             // Verify if we are fighting sync?
+             // Since MoveToSlot is called on Guest, it sets Parent locally.
+             // Then SyncParentSlot will later confirm it.
              transform.SetParent(targetSlot);
              transform.localPosition = Vector3.zero;
              originalParent = targetSlot;
         }
 
-        // Network Update (Sync Slot Position)
+        // Network Update (Sync Slot Position) - ONLY HOST
         if (Object != null && Object.IsValid && HasStateAuthority)
         {
             SlotInfo info = targetSlot != null ? targetSlot.GetComponent<SlotInfo>() : null;
@@ -713,18 +840,18 @@ public class UnitMover : NetworkBehaviour, IBeginDragHandler, IDragHandler, IEnd
             }
         }
         
-        // Trigger ON_MOVE effects
-        if (AbilityManager.instance != null && sourceData != null) 
+        // Trigger ON_MOVE effects (Host Only or Local Offline)
+        bool isAuth = (Object == null || !Object.IsValid || HasStateAuthority);
+        if (isAuth && AbilityManager.instance != null && sourceData != null) 
         { 
             SlotInfo currentSlot = targetSlot != null ? targetSlot.GetComponent<SlotInfo>() : null;
-            if (currentSlot != null) Debug.Log($"[UnitMover] Processing ON_MOVE for {sourceData.cardName} at Slot({currentSlot.x}, {currentSlot.y}). OriginalParent matches: {originalParent == targetSlot}");
+            if (currentSlot != null) Debug.Log($"[UnitMover] Processing ON_MOVE for {sourceData.cardName} at Slot({currentSlot.x}, {currentSlot.y})");
             
             AbilityManager.instance.ProcessAbilities(sourceData, EffectTrigger.ON_MOVE, this); 
         }
         
-        // Consume Action Logic
-        // Assuming ConsumeAction() covers "Move Used".
-        ConsumeAction();
+        // Consume Action Logic (Host Only or Local Offline)
+        if (isAuth) ConsumeAction();
 
         isAnimating = false; 
         

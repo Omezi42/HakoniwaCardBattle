@@ -11,6 +11,9 @@ public class NetworkConnectionManager : MonoBehaviour, INetworkRunnerCallbacks
     public static NetworkConnectionManager instance;
     private NetworkRunner _runner;
     public NetworkRunner Runner => _runner; // [NEW] 外部公開プロパティ
+    
+    // [NEW] セッション名からランダムマッチかどうかを判定
+    public bool IsRandomMatch => _runner != null && _runner.IsRunning && _runner.SessionInfo.IsValid && _runner.SessionInfo.Name.StartsWith("Random_");
 
     // 戦闘シーン名（実際の名前に変更）
     [SerializeField] private string gameSceneName = "SampleScene"; 
@@ -32,6 +35,14 @@ public class NetworkConnectionManager : MonoBehaviour, INetworkRunnerCallbacks
                 Debug.LogWarning("Destined NetworkRunner attached to Manager. Destroying it to use RunnerHolder pattern.");
                 Destroy(attachedRunner);
             }
+            
+            // ★Fusion 2 Best Practice: Set global settings early if you want consistency
+            var globalSettings = Fusion.Photon.Realtime.PhotonAppSettings.Global.AppSettings;
+            if (string.IsNullOrEmpty(globalSettings.FixedRegion))
+            {
+                globalSettings.FixedRegion = "jp";
+                Debug.Log("[NetworkConnectionManager] Forced Global FixedRegion to 'jp'");
+            }
         }
         else
         {
@@ -39,8 +50,6 @@ public class NetworkConnectionManager : MonoBehaviour, INetworkRunnerCallbacks
         }
     }
 
-    // ■ ルームマッチ (ID指定: 参加/作成 共通)
-    // OnlineMenuManagerから呼ばれる
     // ■ ルームマッチ (ID指定: 参加/作成 共通)
     // OnlineMenuManagerから呼ばれる
     public async Task<bool> StartSharedSession(string sessionName, string sceneName, bool joinOnly = false)
@@ -76,7 +85,7 @@ public class NetworkConnectionManager : MonoBehaviour, INetworkRunnerCallbacks
         await CreateRunner(); // ロビー用のRunner作成
 
         Debug.Log("Joining Lobby for Random Match...");
-        var result = await _runner.JoinSessionLobby(SessionLobby.ClientServer);
+        var result = await _runner.JoinSessionLobby(SessionLobby.Shared);
 
         if (!result.Ok)
         {
@@ -90,6 +99,23 @@ public class NetworkConnectionManager : MonoBehaviour, INetworkRunnerCallbacks
         };
     }
 
+    public async void RestartRandomMatch()
+    {
+        if (_runner != null) 
+        {
+            await _runner.Shutdown();
+            // Wait a bit?
+            await Task.Delay(500);
+        }
+        await StartRandomMatch();
+    }
+    
+    public async void DisconnectAndGoToMenu()
+    {
+        if (_runner != null) await _runner.Shutdown();
+        SceneManager.LoadScene("MenuScene");
+    }
+
     private async void JoinFirstAvailableOrHost(List<SessionInfo> sessions)
     {
         foreach (var session in sessions)
@@ -97,14 +123,14 @@ public class NetworkConnectionManager : MonoBehaviour, INetworkRunnerCallbacks
             if (session.IsOpen && session.PlayerCount < session.MaxPlayers && session.Name.StartsWith("Random_"))
             {
                 Debug.Log($"Found open session: {session.Name}, Joining...");
-                await StartGame(session.Name, GameMode.Shared);
+                await StartGame(session.Name, GameMode.Shared, "RoomScene");
                 return;
             }
         }
 
         string randomRoomName = "Random_" + Guid.NewGuid().ToString().Substring(0, 8);
         Debug.Log($"No session found. Creating: {randomRoomName}");
-        await StartGame(randomRoomName, GameMode.Shared);
+        await StartGame(randomRoomName, GameMode.Shared, "RoomScene");
     }
 
     // Runnerを作成（作り直し）するヘルパー
@@ -154,6 +180,7 @@ public class NetworkConnectionManager : MonoBehaviour, INetworkRunnerCallbacks
 
         // シーンパスの確認
         string targetScene = !string.IsNullOrEmpty(specificSceneName) ? specificSceneName : gameSceneName;
+        // ... (snip scene check) ...
         string scenePath = $"Assets/Scenes/{targetScene}.unity";
         int sceneIndex = SceneUtility.GetBuildIndexByScenePath(scenePath);
 
@@ -177,13 +204,13 @@ public class NetworkConnectionManager : MonoBehaviour, INetworkRunnerCallbacks
         var objProvider = _runnerInstance.GetComponent<NetworkObjectProviderDefault>();
 
         // AppSettingsでRegionを固定 (ParrelSyncなどでのリージョン不一致を防ぐ)
-        // 既存の設定をベースにするため、PhotonAppSettings.Global.AppSettingsからIDを取得
+        // Globalから取得（Awakeでセット済み）
         var globalSettings = Fusion.Photon.Realtime.PhotonAppSettings.Global.AppSettings;
         
         var customAppSettings = new Fusion.Photon.Realtime.FusionAppSettings
         {
             AppIdFusion = globalSettings.AppIdFusion,
-            FixedRegion = "jp",
+            FixedRegion = globalSettings.FixedRegion, // Awakeで設定した値(jp)
             UseNameServer = true
         };
 
@@ -196,8 +223,8 @@ public class NetworkConnectionManager : MonoBehaviour, INetworkRunnerCallbacks
             SceneManager = sceneManager,
             ObjectProvider = objProvider,
             CustomPhotonAppSettings = customAppSettings
-            // DisableClientSessionCreation = joinOnly // Removed: Not available in this Fusion version
         });
+
 
         if (result.Ok)
         {
@@ -261,8 +288,23 @@ public class NetworkConnectionManager : MonoBehaviour, INetworkRunnerCallbacks
     public void OnPlayerJoined(NetworkRunner runner, PlayerRef player) 
     { 
         Debug.Log($"Player Joined: {player}"); 
-        
-        if (runner.IsServer && playerControllerPrefab != null)
+
+        // Shared Mode: Each player spawns their own NetworkPlayerController
+        if (runner.GameMode == GameMode.Shared)
+        {
+            if (player == runner.LocalPlayer && playerControllerPrefab != null)
+            {
+                var playerObj = runner.Spawn(playerControllerPrefab, Vector3.zero, Quaternion.identity, player);
+                var pc = playerObj.GetComponent<NetworkPlayerController>();
+                if (pc != null)
+                {
+                    pc.Owner = player;
+                    Debug.Log($"[Shared Mode] Spawned Local NetworkPlayerController for {player}");
+                }
+            }
+        }
+        // Host/Server Mode: Host spawns for everyone
+        else if (runner.IsServer && playerControllerPrefab != null)
         {
             // Spawn NetworkPlayerController for the new player
             // Assign Input Authority to the player
@@ -271,9 +313,8 @@ public class NetworkConnectionManager : MonoBehaviour, INetworkRunnerCallbacks
             if (pc != null)
             {
                 pc.Owner = player;
-                Debug.Log($"Spawned NetworkPlayerController for {player}. Set Owner to {player}");
+                Debug.Log($"[Server Mode] Spawned NetworkPlayerController for {player}. Set Owner to {player}");
             }
-            Debug.Log($"Spawned NetworkPlayerController for {player}");
         }
     }
     public void OnPlayerLeft(NetworkRunner runner, PlayerRef player) { Debug.Log($"Player Left: {player}"); }

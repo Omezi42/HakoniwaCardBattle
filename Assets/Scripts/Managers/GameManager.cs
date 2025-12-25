@@ -13,7 +13,7 @@ public class GameManager : MonoBehaviour
 
     [Header("UIパーツ")]
     public Transform handArea;
-    public Transform playerManaText;
+    // public Transform playerManaText; // Removed
     public Transform endTurnButton;
     public Transform playerDeckIsland;
     public GameObject playerDeckVisual; 
@@ -22,6 +22,9 @@ public class GameManager : MonoBehaviour
     [Header("情報表示")]
     public TextMeshProUGUI playerDeckCountText;
     public TextMeshProUGUI enemyDeckCountText;
+    public TextMeshProUGUI enemyHandCountText;  // ★追加
+    public TextMeshProUGUI playerGraveCountText; // ★追加
+    public TextMeshProUGUI enemyGraveCountText;  // ★追加
 
     [Header("Result UI")]
     public GameObject resultPanel;
@@ -138,6 +141,12 @@ public class GameManager : MonoBehaviour
     public MulliganManager mulliganManager;
     private List<CardData> tempHand = new List<CardData>();
 
+    [Header("追加Prefab")]
+    public GameObject deckCardPrefab; // ★追加
+
+    [Header("ターゲット情報")]
+    public int lastTargetX = -1; // ★追加
+
     private int turnCount = 0;
     private bool isGameEnded = false;
     
@@ -147,7 +156,6 @@ public class GameManager : MonoBehaviour
     #region Singleton & Lifecycle
     private void Awake() 
     { 
-        Debug.Log("[GameManager] Awake Called. Instance: " + (instance == null ? "null (Setting now)" : "Already Set"));
         if (instance == null) instance = this; 
     }
 
@@ -206,12 +214,25 @@ public class GameManager : MonoBehaviour
         }
 
         StartCoroutine(WaitForNetworkAndStart(isOnline, isFirst));
+        if (isOnline) StartCoroutine(ForceSyncOpponentStats()); // ★Force Polling Sync
+    }
+
+    System.Collections.IEnumerator ForceSyncOpponentStats()
+    {
+        while(true)
+        {
+            if (NetworkConnectionManager.instance != null && 
+                NetworkConnectionManager.instance.Runner != null && 
+                NetworkConnectionManager.instance.Runner.IsRunning)
+            {
+                 SyncNetworkInfo();
+            }
+            yield return new WaitForSeconds(0.5f);
+        }
     }
 
     System.Collections.IEnumerator WaitForNetworkAndStart(bool isOnline, bool isFirst)
     {
-        // Wait a frame to ensure NetworkRunner is ready if online
-        // Online Mode: Wait until GameStateController is spawned
         // Wait a frame to ensure NetworkRunner is ready if online
         // Online Mode: Wait until GameStateController is spawned
         GameStateController gameState = null;
@@ -228,12 +249,24 @@ public class GameManager : MonoBehaviour
         if (isOnline)
         {
             // Submit Job ID
+            // ... (rest of function)
             if (PlayerDataManager.instance != null && PlayerDataManager.instance.playerData.decks.Count > PlayerDataManager.instance.playerData.currentDeckIndex)
             {
                var currentDeck = PlayerDataManager.instance.playerData.decks[PlayerDataManager.instance.playerData.currentDeckIndex];
                int myJobId = (int)currentDeck.deckJob; 
-               Debug.Log($"[GameManager] Sending JobID {myJobId} to GameStateController via RPC.");
-               gameState.RPC_SubmitJobId(myJobId);
+               
+               // Direct set if State Authority (Shared Mode Owner)
+               var myPC = NetworkPlayerController.Get(NetworkConnectionManager.instance.Runner.LocalPlayer);
+               if (myPC != null && myPC.Object.HasStateAuthority)
+               {
+                   myPC.JobId = myJobId;
+                   Debug.Log($"[GameManager] Set JobID {myJobId} directly on NetworkPlayerController.");
+               }
+               else
+               {
+                   Debug.Log($"[GameManager] Sending JobID {myJobId} to GameStateController via RPC.");
+                   gameState.RPC_SubmitJobId(myJobId);
+               }
             }
 
             // Check if game already started
@@ -255,6 +288,8 @@ public class GameManager : MonoBehaviour
         }
     }
 
+
+
     public void SetEnemyLeaderIcon(int jobId)
     {
         Debug.Log($"[GameManager] SetEnemyLeaderIcon called with JobId: {jobId}");
@@ -271,8 +306,8 @@ public class GameManager : MonoBehaviour
                  leaderScript = enemyInfoObj.GetComponent<Leader>();
                  if (leaderScript == null) leaderScript = enemyInfoObj.GetComponentInChildren<Leader>();
                  
-                 // ★CRITICAL FIX: Assign to field so SyncNetworkInfo uses it
-                 if (this.enemyLeaderObj == null) this.enemyLeaderObj = enemyInfoObj;
+                 // ★CRITICAL FIX: Cache it
+                 this.enemyLeaderObj = enemyInfoObj;
              }
 
              // Try 2: If failed, try "EnemyLeader"
@@ -312,11 +347,11 @@ public class GameManager : MonoBehaviour
     {
         if (_hasStartedMulligan) 
         {
-            Debug.LogWarning("[GameManager] StartMulliganSequence called but already started. Ignoring.");
+            Debug.Log("[GameManager] StartMulliganSequence already started. Ignoring.");
             return;
         }
         _hasStartedMulligan = true;
-
+        
         Debug.Log($"[GameManager] StartMulliganSequence Called. Draw: {drawCount}, First: {isFirst}");
 
         // マリガン中はターン終了ボタンを無効化
@@ -677,7 +712,7 @@ public class GameManager : MonoBehaviour
         if (turnCutIn != null) 
         { 
             turnCutIn.gameObject.SetActive(true); 
-            turnCutIn.Show("YOUR TURN", Color.cyan); 
+            turnCutIn.Show("あなたのターン", Color.cyan); 
         } 
         
         // ★Sync Fix: Online Mode Enemy Turn End Processing
@@ -703,7 +738,8 @@ public class GameManager : MonoBehaviour
     }
 
     // ★Sync Network State (Host writes, Guest reads)
-    void SyncNetworkInfo()
+    // ★Two-way Sync Logic
+    public void SyncNetworkInfo()
     {
         var gameState = FindObjectOfType<GameStateController>();
         if (gameState == null || gameState.Object == null || !gameState.Object.IsValid) return;
@@ -712,38 +748,66 @@ public class GameManager : MonoBehaviour
         var myPC = NetworkPlayerController.Get(gameState.Runner.LocalPlayer);
         
         // --- 1. Push Local Stats to Network ---
-        // Both Host and Guest push their own stats to their own NetworkPlayerController
-        // Host can write directly; Guest MUST use RPC since it doesn't have StateAuthority over its PC (Host does).
-        // Wait, NetworkPlayerController typically has StateAuthority on Host.
-        // Guest InputAuthority -> Send RPC to Host -> Host updates PC.
-
-        if (isHost)
+        int myJobId = 0;
+        if (PlayerDataManager.instance != null && PlayerDataManager.instance.playerData != null)
         {
-            // Host logic: Direct update
-            if (myPC != null)
+             var d = PlayerDataManager.instance.playerData;
+             if (d.decks != null && d.currentDeckIndex >= 0 && d.currentDeckIndex < d.decks.Count)
+             {
+                 myJobId = (int)d.decks[d.currentDeckIndex].deckJob;
+             }
+        }
+
+        if (myPC != null)
+        {
+            if (myPC.Object.HasStateAuthority)
             {
+                // Direct Update
                 if (playerLeader != null) myPC.CurrentHp = playerLeader.GetComponent<Leader>().currentHp;
                 myPC.HandCount = hand.Count;
                 myPC.DeckCount = mainDeck.Count;
                 myPC.GraveCount = playerGraveyardCount;
+                myPC.CurrentMana = currentMana;
+                myPC.MaxMana = maxMana; // ★追加: MaxManaも同期
+                myPC.JobId = myJobId;
             }
-        }
-        else
-        {
-            // Guest logic: Send RPC (throttled logic inside SendStatsToHost)
-            SendStatsToHost(gameState);
+            else
+            {
+                // Guest in Host Mode (Input Authority only)
+                SendStatsToHost(gameState, myJobId, myPC.Object.Id);
+            }
         }
 
         // --- 2. Read Enemy Stats from Network ---
-        // Find Enemy PC
-        var enemyPC = NetworkPlayerController.Instances.FirstOrDefault(pc => pc.Owner != gameState.Runner.LocalPlayer);
+        // ★修正：有効なNetworkObjectのみを対象にし、現在のRunnerに属するもの、かつ最新のものを取得する
+        // ★修正：InputAuthority を用いて自分以外のプレイヤーのコントローラーを確実に特定する
+        var enemyPC = NetworkPlayerController.Instances.FirstOrDefault(pc => 
+            pc != null &&
+            pc.Object != null && 
+            pc.Object.IsValid && 
+            pc.Object.IsValid && 
+            pc.Object.InputAuthority != gameState.Runner.LocalPlayer);
+        
+        // ★Fallback: If Instances cache fails
+        if (enemyPC == null)
+        {
+             var allPCs = FindObjectsOfType<NetworkPlayerController>();
+             foreach(var pc in allPCs)
+             {
+                 if (pc != null && pc.Object != null && pc.Object.IsValid && pc.Object.InputAuthority != gameState.Runner.LocalPlayer)
+                 {
+                     enemyPC = pc;
+                     // Debug.Log("[Sync] Found Enemy PC via FindObjectsOfType fallback");
+                     break;
+                 }
+             }
+        }
         
         if (enemyPC != null)
         {
              // Update Dummy HP on screen
              Leader enemyL = enemyLeaderObj != null ? enemyLeaderObj.GetComponent<Leader>() : null;
              
-             // Retry finding if missing
              if (enemyL == null && enemyLeaderObj == null)
              {
                   enemyLeaderObj = GameObject.Find("EnemyInfo");
@@ -758,38 +822,86 @@ public class GameManager : MonoBehaviour
                       enemyL.UpdateHPBar();
                  }
              }
+             
+             // Update Leader Icon
+             if (enemyPC.JobId != 0) 
+             {
+                 SetEnemyLeaderIcon(enemyPC.JobId);
+             }
+             else
+             {
+                 // デバッグ用: JobIdが0の場合はアイコン更新がスキップされる
+                 // Debug.Log($"[Sync] Enemy JobId is 0. Icon update skipped. PC: {enemyPC.Object.Id}");
+             }
 
              // Update Dummy Counts
              enemyDeckCount = enemyPC.DeckCount;
              enemyGraveyardCount = enemyPC.GraveCount;
              
+             // [NEW] Update Enemy Mana for Logic
+             enemyCurrentMana = enemyPC.CurrentMana;
+             enemyMaxMana = enemyPC.MaxMana; // ★修正: MaxManaも同期
+             UpdateEnemyManaUI(); // Reflect visual
+             
              // Update Dummy Hand
              UpdateEnemyHandVisuals(enemyPC.HandCount);
              
-             if (!isHost) UpdateDeckGraveyardVisuals(); // Only Guest needs explicit local UI update for these if Host handles differently? Actually both need existing logic.
+             // ★FIX: UI Text update is CRITICAL
+             if (enemyHandCountText != null) 
+             {
+                 enemyHandCountText.text = enemyPC.HandCount.ToString();
+                 enemyHandCountText.gameObject.SetActive(true); // 確実に見えるように
+             }
+             if (enemyDeckCountText != null) 
+             {
+                 enemyDeckCountText.text = enemyPC.DeckCount.ToString();
+                 enemyDeckCountText.gameObject.SetActive(true);
+             }
+
+             UpdateDeckGraveyardVisuals(); 
+             
+             // デバッグ用: 同期データをログ出力
+             Debug.Log($"[Sync] EnemyPC Stats: HP={enemyPC.CurrentHp}, Hand={enemyPC.HandCount}, Deck={enemyPC.DeckCount}, Grave={enemyPC.GraveCount}, Mana={enemyPC.CurrentMana}/{enemyPC.MaxMana}, Job={enemyPC.JobId}");
         }
+        else
+        {
+             // Debug.Log("[SyncNetworkInfo] No Enemy PC found.");
+        }
+        // Debug.Log($"[SyncNetworkInfo] Player Hand: {hand.Count}, Deck: {mainDeck.Count}, Grave: {playerGraveyardCount}, Mana: {currentMana}, MaxMana: {maxMana}, Job: {myJobId}");
     }
+    
+    // SetEnemyLeaderIcon removed (Duplicate)
     
     private int _lastSentHp = -1;
     private int _lastSentHand = -1;
     private int _lastSentDeck = -1;
     private int _lastSentGrave = -1;
-    
-    void SendStatsToHost(GameStateController gameState)
+    private int _lastSentMana = -1;
+    private int _lastSentMaxMana = -1; // ★追加
+    private int _lastSentJobId = -1; // [NEW]
+
+    void SendStatsToHost(GameStateController gameState, int jobId, NetworkId myId)
     {
          int myHp = playerLeader ? playerLeader.GetComponent<Leader>().currentHp : 0;
          int myHand = hand.Count;
          int myDeck = mainDeck.Count;
          int myGrave = playerGraveyardCount;
+         int myMana = currentMana;
+         int myMaxMana = maxMana; // ★追加
          
-         if (myHp != _lastSentHp || myHand != _lastSentHand || myDeck != _lastSentDeck || myGrave != _lastSentGrave)
+         if (myHp != _lastSentHp || myHand != _lastSentHand || myDeck != _lastSentDeck || myGrave != _lastSentGrave || myMana != _lastSentMana || myMaxMana != _lastSentMaxMana || jobId != _lastSentJobId)
          {
              _lastSentHp = myHp;
              _lastSentHand = myHand;
              _lastSentDeck = myDeck;
              _lastSentGrave = myGrave;
+             _lastSentMana = myMana;
+             _lastSentMaxMana = myMaxMana; // ★追加
+             _lastSentJobId = jobId;
              
-             gameState.RPC_UpdatePlayerStats(myHand, myDeck, myGrave, myHp);
+             _lastSentJobId = jobId;
+             
+             gameState.RPC_UpdatePlayerStats(myId, myHand, myDeck, myGrave, myHp, myMana, myMaxMana, jobId); // ★修正: NetworkId経由で確実化
          }
     }
 
@@ -798,34 +910,35 @@ public class GameManager : MonoBehaviour
         if (enemyHandArea != null)
         {
             int current = enemyHandArea.childCount;
-            // Debug.Log($"[HandSync] Target: {targetCount}, Current: {current}");
+            Debug.Log($"[Sync] Enemy Hand UI Count: {current} -> Target: {targetCount}");
             
             if (current < targetCount)
             {
                 for(int i=current; i<targetCount; i++)
                 {
-                    if (cardBackPrefab != null) 
+                    GameObject prefab = cardBackPrefab;
+                    if (prefab == null && cardPrefab != null) prefab = cardPrefab.gameObject;
+
+                    if (prefab != null) 
                     {
-                        GameObject cardObj = Instantiate(cardBackPrefab, enemyHandArea);
-                        // Force generic Card Back properties
+                        GameObject cardObj = Instantiate(prefab, enemyHandArea);
                         cardObj.transform.localScale = Vector3.one;
                         cardObj.transform.localPosition = Vector3.zero;
-                        
-                        // Force Ensure it is active/visible
                         cardObj.SetActive(true);
-                        
-                        // Ensure layer match
                         cardObj.layer = enemyHandArea.gameObject.layer; 
                         
-                        // Adjust Z to avoid being hidden behind background?
-                        // Usually localPosition.z = 0 is safe for UI.
+                        // ★CPU戦の挙動を再現: CardViewがある場合は裏面表示を強制
+                        var cv = cardObj.GetComponent<CardView>();
+                        if (cv) cv.ShowBack(true);
                         
-                        // Debug Log
-                        // Debug.Log($"[HandSync] Spawned CardBack at {enemyHandArea.childCount-1}");
-                    }
-                    else
-                    {
-                        Debug.LogError("[GameManager] cardBackPrefab is NULL! Cannot render enemy hand.");
+                        // RectTransform のリセット (UI配置のズレ防止)
+                        RectTransform rt = cardObj.GetComponent<RectTransform>();
+                        if (rt)
+                        {
+                            rt.anchoredPosition = Vector2.zero;
+                            rt.localScale = Vector3.one;
+                        }
+                        // Debug.Log($"[Sync] Added enemy hand card. Current count: {enemyHandArea.childCount}");
                     }
                 }
             }
@@ -833,7 +946,15 @@ public class GameManager : MonoBehaviour
             {
                 for(int i=current; i>targetCount; i--)
                 {
-                    if (enemyHandArea.childCount > 0) Destroy(enemyHandArea.GetChild(enemyHandArea.childCount - 1).gameObject);
+                    if (enemyHandArea.childCount > 0) 
+                    {
+                        Transform lastCard = enemyHandArea.GetChild(enemyHandArea.childCount - 1);
+                        // 即座に名前を変えるなどして重複取得を避ける（簡易的な対策）
+                        lastCard.name = "__DESTROYING__"; 
+                        lastCard.SetParent(null);
+                        Destroy(lastCard.gameObject);
+                        // Debug.Log($"[Sync] Removed enemy hand card. Current count: {enemyHandArea.childCount}");
+                    }
                 }
             }
         }
@@ -919,15 +1040,21 @@ public class GameManager : MonoBehaviour
     public void OnOnlineEnemyTurnStart()
     {
         // オンライン対戦での敵ターン開始処理
-        if (turnCutIn != null) turnCutIn.Show("ENEMY TURN", Color.red);
+        if (turnCutIn != null) turnCutIn.Show("相手のターン", Color.red);
         isPlayerTurn = false;
         
         // 敵のボード状態（ビルドの建築完了など）を更新
         ResetBoardState(false);
         
+        // ★FIX: Increment Enemy Mana on Host to match Guest's state
+        if (enemyMaxMana < 10) enemyMaxMana++;
+        enemyCurrentMana = enemyMaxMana;
+        UpdateEnemyManaUI();
+        
         // UI更新などが必要ならここで行う
         UpdateBuildUI();
     }
+
 
     public void StartEnemyTurn() 
     { 
@@ -948,7 +1075,7 @@ public class GameManager : MonoBehaviour
     { 
         if (isGameEnded) yield break;
 
-        if (turnCutIn != null) turnCutIn.Show("ENEMY TURN", Color.red); 
+        if (turnCutIn != null) turnCutIn.Show("相手のターン", Color.red); 
         yield return new WaitForSeconds(2.0f);  
 
         if (enemyBuildCooldown > 0) enemyBuildCooldown--; 
@@ -1332,8 +1459,25 @@ public class GameManager : MonoBehaviour
             } 
             PlaySE(seDraw); 
 
-            Transform tempParent = effectCanvasLayer != null ? effectCanvasLayer : handArea.root; 
-            GameObject cardObj = Instantiate(isPlayer ? cardPrefab.gameObject : cardBackPrefab, tempParent); 
+            // ★FIX: Check if effectCanvasLayer is actually visible. If not, fallback to handArea or top-level canvas.
+            Transform tempParent = (effectCanvasLayer != null && effectCanvasLayer.gameObject.activeInHierarchy) ? effectCanvasLayer : null;
+            if (tempParent == null)
+            {
+                if (handArea != null) tempParent = handArea.parent; // Likely a visible UI container
+                else tempParent = transform.root; // Failsafe
+            }
+            
+            // ★FIX: Failover logic for CardBack
+            GameObject prefabToUse = isPlayer ? cardPrefab.gameObject : (cardBackPrefab != null ? cardBackPrefab : cardPrefab.gameObject);
+            
+            GameObject cardObj = Instantiate(prefabToUse, tempParent); 
+            
+            // If we used CardView as back
+            if (!isPlayer && prefabToUse == cardPrefab.gameObject)
+            {
+                var cv = cardObj.GetComponent<CardView>();
+                if (cv) cv.ShowBack(true);
+            } 
             cardObj.transform.position = startPos; 
             cardObj.transform.localScale = Vector3.one * 0.5f; 
 
@@ -1479,11 +1623,18 @@ public class GameManager : MonoBehaviour
 
         if (playerDeckCountText) playerDeckCountText.text = mainDeck.Count.ToString(); 
         if (enemyDeckCountText) enemyDeckCountText.text = enemyDeckCount.ToString(); 
+        if (playerGraveCountText) playerGraveCountText.text = playerGraveyardCount.ToString(); // ★追加
+        if (enemyGraveCountText) enemyGraveCountText.text = enemyGraveyardCount.ToString(); // ★追加
     }
 
     public void PlayDiscardAnimation(CardData card, bool isPlayer) 
     { 
         if (cardPrefab == null) return; 
+        if (deckCardPrefab == null) 
+        {
+             // Debug.LogWarning("[GameManager] deckCardPrefab is not assigned! Discard animation will fall back to CardBack.");
+             return; // Or continue with cardPrefab? Let's just return to be safe or assign default.
+        }
 
         Vector3 endPos = isPlayer ? (playerDeckIsland ? playerDeckIsland.position : Vector3.zero) : (enemyDeckIsland ? enemyDeckIsland.position : Vector3.zero); 
         if (isPlayer && playerGraveVisual != null) endPos = playerGraveVisual.transform.position; 
@@ -1491,9 +1642,31 @@ public class GameManager : MonoBehaviour
 
         Vector3 startPos = endPos + new Vector3(0, 100f, 0); 
 
-        GameObject obj = Instantiate(cardPrefab.gameObject, effectCanvasLayer); 
-        CardView view = obj.GetComponent<CardView>(); 
-        if (view != null) view.SetCard(card); 
+        // ★FIX: For Discard animation, use DeckCardPrefab sprite instead of full card prefab
+        GameObject obj = new GameObject("DiscardVisual");
+        Transform tempParent = (effectCanvasLayer != null && effectCanvasLayer.gameObject.activeInHierarchy) ? effectCanvasLayer : null;
+        if (tempParent == null)
+        {
+            if (handArea != null) tempParent = handArea.parent;
+            else tempParent = transform.root;
+        }
+        obj.transform.SetParent(tempParent);
+
+        var img = obj.AddComponent<UnityEngine.UI.Image>();
+        img.preserveAspect = true; // ★アスペクト比維持
+        
+        if (deckCardPrefab != null && deckCardPrefab.GetComponent<UnityEngine.UI.Image>() != null)
+        {
+            img.sprite = deckCardPrefab.GetComponent<UnityEngine.UI.Image>().sprite;
+        }
+        else if (cardBackPrefab != null && cardBackPrefab.GetComponent<UnityEngine.UI.Image>() != null)
+        {
+            img.sprite = cardBackPrefab.GetComponent<UnityEngine.UI.Image>().sprite;
+        }
+        else if (cardPrefab != null && cardPrefab.GetComponent<UnityEngine.UI.Image>() != null)
+        {
+            img.sprite = cardPrefab.GetComponent<UnityEngine.UI.Image>().sprite;
+        }
 
         obj.transform.position = startPos; 
         obj.transform.localScale = Vector3.one; 
@@ -1539,6 +1712,25 @@ public class GameManager : MonoBehaviour
     void Update() 
     { 
         SyncNetworkInfo();
+        
+        // ★Sync Fix: Send My Stats to Host continuously (if changed)
+        if (NetworkConnectionManager.instance != null && NetworkConnectionManager.instance.Runner != null && NetworkConnectionManager.instance.Runner.IsRunning)
+        {
+             var gameState = FindObjectOfType<GameStateController>();
+             if (gameState != null)
+             {
+                  int myJobId = 0;
+                  if (PlayerDataManager.instance != null && PlayerDataManager.instance.playerData.decks.Count > PlayerDataManager.instance.playerData.currentDeckIndex)
+                  {
+                       myJobId = (int)PlayerDataManager.instance.playerData.decks[PlayerDataManager.instance.playerData.currentDeckIndex].deckJob;
+                  }
+                  var myPC = NetworkPlayerController.Get(NetworkConnectionManager.instance.Runner.LocalPlayer);
+                  if (myPC != null && myPC.Object != null)
+                  {
+                      SendStatsToHost(gameState, myJobId, myPC.Object.Id);
+                  }
+             }
+        }
         if (isTargetingMode && currentCastingCard != null) 
         { 
             if (Input.GetMouseButtonDown(1)) 
@@ -1548,6 +1740,10 @@ public class GameManager : MonoBehaviour
             } 
 
             UpdateArrow(arrowStartPos, Input.mousePosition); 
+            
+            // ★列情報をリアルタイムに追跡
+            int col = GetColumnUnderMouse();
+            if (col != -1) lastTargetX = col;
             GameObject targetObj = GetObjectUnderMouse(); 
             bool isValid = false; 
 
@@ -1584,6 +1780,8 @@ public class GameManager : MonoBehaviour
                 else CancelSpellCast(); 
             } 
         } 
+        // ★FIX: FloatingTextが消えない問題の修正
+        // FloatingTextは自身でDestroyされるため、ここでは何もしない
     }
     
     int GetAbilityDamage(CardData card)
@@ -1607,6 +1805,29 @@ public class GameManager : MonoBehaviour
 
     void ExecuteSpell(object manualTarget)
     {
+        // 1. Online Sync
+        bool isOnline = NetworkConnectionManager.instance != null && NetworkConnectionManager.instance.Runner != null && NetworkConnectionManager.instance.Runner.IsRunning;
+        if (isOnline)
+        {
+            var gameState = FindObjectOfType<GameStateController>();
+            if (gameState != null)
+            {
+                 // ターゲット不要なスペルの場合も、Hostに通知して効果を同期させる
+                 // 列情報を取得して送る
+                 int col = lastTargetX;
+                 if (col == -1) col = GetColumnUnderMouse();
+                 
+                 gameState.RPC_RequestPlaySpell(currentCastingCard.cardData.id, default, false, col);
+                 
+                 // Local Cleanup (Visual)
+                 hand.Remove(currentCastingCard.cardData);
+                 Destroy(currentCastingCard.gameObject);
+                 CleanupSpellMode();
+                 return; 
+            }
+        }
+
+        // オフラインまたは非同期実行
         TryUseMana(currentCastingCard.cardData.cost);
         AbilityManager.instance.ProcessAbilities(currentCastingCard.cardData, EffectTrigger.SPELL_USE, null, manualTarget);
         AbilityManager.instance.TriggerSpellReaction(isPlayerTurn);
@@ -1638,7 +1859,7 @@ public class GameManager : MonoBehaviour
     public bool StartSpellCast(CardView card)
     {
         if (currentMana < card.cardData.cost) 
-        {
+        { 
              // Warning feedback
              return false; 
         }
@@ -1731,8 +1952,9 @@ public class GameManager : MonoBehaviour
                              isTargetLeader = true;
                          }
                          
-                         // Send RPC
-                         gameState.RPC_RequestPlaySpell(currentCastingCard.cardData.id, targetUnitsId, isTargetLeader);
+                         // Send RPC with current column
+                         int col = GetColumnUnderMouse();
+                         gameState.RPC_RequestPlaySpell(currentCastingCard.cardData.id, targetUnitsId, isTargetLeader, col);
                          
                          // Local Cleanup
                          hand.Remove(currentCastingCard.cardData);
@@ -1785,7 +2007,13 @@ public class GameManager : MonoBehaviour
         mover.PlaySummonAnimation();
         BroadcastLog($" {card.cardName} を召喚した", true, card);
         PlaySE(seSummon);
-        Destroy(currentCastingCard.gameObject);
+
+        // ★修正：手札データから確実に削除
+        if (hand.Contains(card)) hand.Remove(card);
+        
+        // ★修正：ビジュアル破棄
+        if (currentCastingCard != null) Destroy(currentCastingCard.gameObject);
+        
         CleanupSpellMode();
     }
 
@@ -1994,13 +2222,13 @@ public class GameManager : MonoBehaviour
         { 
             if (isPlayerWin) 
             { 
-                resultText.text = "YOU WIN!"; 
+                resultText.text = "勝利！"; 
                 resultText.color = Color.yellow; 
                 PlaySE(seWin); 
             } 
             else 
             { 
-                resultText.text = "YOU LOSE..."; 
+                resultText.text = "敗北..."; 
                 resultText.color = Color.red; 
                 PlaySE(seLose); 
             } 
@@ -2008,31 +2236,79 @@ public class GameManager : MonoBehaviour
 
         // Button Toggle
         bool isOnline = NetworkConnectionManager.instance != null && NetworkConnectionManager.instance.Runner != null && NetworkConnectionManager.instance.Runner.IsRunning;
-        if (retryButton) retryButton.SetActive(!isOnline);
-        if (returnToRoomButton) returnToRoomButton.SetActive(isOnline);
+        bool isRandomMatch = NetworkConnectionManager.instance != null && NetworkConnectionManager.instance.IsRandomMatch;
+
+        // ★修正: リザルトボタンの重複表示を防ぐため、一度すべて非表示にしてから必要なものを表示
+        if (retryButton) retryButton.SetActive(false);
+        if (returnToRoomButton) returnToRoomButton.SetActive(false);
+
+        if (isOnline)
+        {
+            // オンライン時は両方のボタンを表示できるが、配置が重ならないようにするか、
+            // ユーザーの意図に合わせて適切にラベルを設定
+            if (retryButton) 
+            {
+                retryButton.SetActive(true);
+                var txt = retryButton.GetComponentInChildren<TextMeshProUGUI>();
+                if (txt != null) txt.text = isRandomMatch ? "もう一度" : "再戦";
+            }
+
+            if (returnToRoomButton) 
+            {
+                returnToRoomButton.SetActive(true);
+                var txt = returnToRoomButton.GetComponentInChildren<TextMeshProUGUI>();
+                if (txt != null) txt.text = isRandomMatch ? "メニューへ" : "ルームに戻る";
+            }
+        }
+        else
+        {
+            // オフライン時はリトライのみ表示
+            if (retryButton) retryButton.SetActive(true);
+        }
 
         isPlayerTurn = false; 
     }
 
     public void OnClickRetry() 
     { 
-        SceneManager.LoadScene(SceneManager.GetActiveScene().name); 
-    }
-
-    // [NEW] Online: Back to Room
-    public void OnClickReturnToRoom()
-    {
-        var runner = NetworkConnectionManager.instance.Runner;
-        if (runner != null && runner.IsRunning)
+        bool isOnline = NetworkConnectionManager.instance != null && NetworkConnectionManager.instance.Runner != null && NetworkConnectionManager.instance.Runner.IsRunning;
+        
+        if (isOnline)
         {
-            // Keep Runner alive, load Room Scene
-            runner.LoadScene("RoomScene");
+            // Online Retry
+            NetworkConnectionManager.instance.RestartRandomMatch();
         }
         else
         {
-             // Fallback
+            // Offline Retry
+            SceneManager.LoadScene(SceneManager.GetActiveScene().name); 
+        }
+    }
+
+    // [NEW] Online: Back to Menu
+    public void OnClickReturnToRoom()
+    {
+        // User requested "Return to Menu"
+        bool isOnline = NetworkConnectionManager.instance != null && NetworkConnectionManager.instance.Runner != null && NetworkConnectionManager.instance.Runner.IsRunning;
+
+        if (isOnline)
+        {
+             NetworkConnectionManager.instance.DisconnectAndGoToMenu();
+        }
+        else
+        {
              SceneManager.LoadScene("MenuScene");
         }
+    }
+
+    public void RestartGame()
+    {
+        // ★FIX: If offline, reload SampleScene. If Online, go back to Menu or Lobby? 
+        // For simplicity and user request, ensuring we can play again.
+        if (FindObjectOfType<GameStateController>() == null)
+            UnityEngine.SceneManagement.SceneManager.LoadScene("SampleScene");
+        else
+            UnityEngine.SceneManagement.SceneManager.LoadScene("SampleScene"); // Reload scene for online too? Or Menu?
     }
 
     public void OnClickMenu() 
@@ -2096,12 +2372,21 @@ public class GameManager : MonoBehaviour
     { 
         if(floatingTextPrefab)
         { 
-            Transform t=effectCanvasLayer?effectCanvasLayer:(handArea?handArea.parent:null); 
+            // Ensures text is spawned on an active canvas layer
+            Transform t = (effectCanvasLayer != null && effectCanvasLayer.gameObject.activeInHierarchy) ? effectCanvasLayer : null;
+            if (t == null)
+            {
+                if (handArea != null) t = handArea.parent;
+                else t = GameObject.Find("Canvas")?.transform;
+            }
+
             if(t)
             { 
-                var o=Instantiate(floatingTextPrefab,t); 
-                o.transform.position=p+new Vector3(0,50,0); 
-                o.GetComponent<FloatingText>().Setup(d);
+                var o = Instantiate(floatingTextPrefab, t); 
+                o.transform.position = p + new Vector3(0, 50, 0); 
+                FloatingText ft = o.GetComponent<FloatingText>();
+                if (ft != null) ft.Setup(d);
+                else Debug.LogError($"[GameManager] FloatingText component missing on prefab: {floatingTextPrefab.name}");
             }
         }
     }
@@ -2127,19 +2412,48 @@ public class GameManager : MonoBehaviour
 
     public void UpdateManaUI() 
     { 
-        if (playerManaText != null) playerManaText.GetComponent<TextMeshProUGUI>().text = $"Mana: {currentMana}/{maxMana}"; 
-        if (playerManaCrystals != null) 
-        { 
-            for (int i = 0; i < playerManaCrystals.Count; i++) 
-            { 
-                if (playerManaCrystals[i] == null) continue; 
-                playerManaCrystals[i].color = Color.white; 
-                var crystalUI = playerManaCrystals[i].GetComponent<ManaCrystalUI>(); 
-                if (crystalUI == null) crystalUI = playerManaCrystals[i].gameObject.AddComponent<ManaCrystalUI>(); 
-                playerManaCrystals[i].gameObject.SetActive(i < maxMana); 
-                bool isActive = (i < currentMana); 
-                crystalUI.SetState(isActive, manaOnSprite, manaOffSprite); 
-            } 
+        // if (playerManaText != null) playerManaText.GetComponent<TextMeshProUGUI>().text = $"Mana: {currentMana}/{maxMana}"; 
+        
+        // Ensure crystal list is sufficient
+        int displayCount = Mathf.Max(maxMana, currentMana);
+        if (playerManaCrystals != null)
+        {
+             // Add missing crystals if needed
+             while (playerManaCrystals.Count < displayCount)
+             {
+                 // Clone the first one or create new? Assuming first exists effectively
+                 GameObject newObj = Instantiate(playerManaCrystals[0].gameObject, playerManaCrystals[0].transform.parent);
+                 playerManaCrystals.Add(newObj.GetComponent<Image>());
+             }
+
+             for (int i = 0; i < playerManaCrystals.Count; i++) 
+             { 
+                 if (playerManaCrystals[i] == null) continue; 
+                 playerManaCrystals[i].color = Color.white; 
+                 var crystalUI = playerManaCrystals[i].GetComponent<ManaCrystalUI>(); 
+                 if (crystalUI == null) crystalUI = playerManaCrystals[i].gameObject.AddComponent<ManaCrystalUI>(); 
+                 
+                 // Visibility: Show up to displayCount. 
+                 bool isVisible = i < displayCount;
+                 playerManaCrystals[i].gameObject.SetActive(isVisible);
+                 
+                 if (isVisible)
+                 {
+                     bool isActive = (i < currentMana); 
+                     // Logic: Normal Mana (0 to maxMana-1) gets "On" or "Off".
+                     //        Extra Mana (maxMana to currentMana-1) gets "Coin".
+                     
+                     Sprite onSprite = manaOnSprite;
+                     
+                     // If this slot is beyond normal maxMana, it's a temporary Coin slot
+                     if (i >= maxMana)
+                     {
+                         if (manaCoinSprite != null) onSprite = manaCoinSprite;
+                     }
+
+                     crystalUI.SetState(isActive, onSprite, manaOffSprite);
+                 }
+             } 
         } 
         UpdateHandState(); 
     }
@@ -2210,17 +2524,43 @@ public class GameManager : MonoBehaviour
     public void UpdateEnemyManaUI() 
     { 
         if (enemyManaText != null) enemyManaText.GetComponent<TextMeshProUGUI>().text = $"Mana: {enemyCurrentMana}/{enemyMaxMana}"; 
+        
+        int displayCount = Mathf.Max(enemyMaxMana, enemyCurrentMana);
         if (enemyManaCrystals != null) 
         { 
+             while (enemyManaCrystals.Count < displayCount)
+             {
+                 if (enemyManaCrystals.Count > 0 && enemyManaCrystals[0] != null)
+                 {
+                     GameObject newObj = Instantiate(enemyManaCrystals[0].gameObject, enemyManaCrystals[0].transform.parent);
+                     enemyManaCrystals.Add(newObj.GetComponent<Image>());
+                 }
+                 else break; // Safety
+             }
+
             for (int i = 0; i < enemyManaCrystals.Count; i++) 
             { 
                 if (enemyManaCrystals[i] == null) continue; 
                 enemyManaCrystals[i].color = Color.white; 
                 var crystalUI = enemyManaCrystals[i].GetComponent<ManaCrystalUI>(); 
                 if (crystalUI == null) crystalUI = enemyManaCrystals[i].gameObject.AddComponent<ManaCrystalUI>(); 
-                bool isActive = (i < enemyCurrentMana); 
-                crystalUI.SetState(isActive, manaCoinSprite != null ? manaCoinSprite : manaOnSprite, manaOffSprite); 
-                enemyManaCrystals[i].gameObject.SetActive(i < enemyMaxMana); 
+                
+                bool isVisible = i < displayCount;
+                enemyManaCrystals[i].gameObject.SetActive(isVisible);
+
+                if (isVisible)
+                {
+                    bool isActive = (i < enemyCurrentMana); 
+                    
+                    Sprite onSprite = manaOnSprite;
+                    // Extra Mana -> Coin
+                    if (i >= enemyMaxMana)
+                    {
+                        if (manaCoinSprite != null) onSprite = manaCoinSprite;
+                    }
+
+                    crystalUI.SetState(isActive, onSprite, manaOffSprite); 
+                }
             } 
         } 
     }
@@ -2387,7 +2727,7 @@ public class GameManager : MonoBehaviour
             {
                  // Only Host processes logic
                  bool isOnline = NetworkConnectionManager.instance != null && NetworkConnectionManager.instance.Runner != null && NetworkConnectionManager.instance.Runner.IsRunning;
-                 bool isAuth = isOnline ? NetworkConnectionManager.instance.Runner.IsServer : true;
+                 bool isAuth = isOnline ? (NetworkConnectionManager.instance.Runner.IsServer || NetworkConnectionManager.instance.Runner.IsSharedModeMasterClient) : true;
 
                  if (isAuth)
                  {
@@ -2527,6 +2867,17 @@ public class GameManager : MonoBehaviour
         if (r.Count > 0) return r[0].gameObject; 
         return null; 
     }
+
+    public int GetColumnUnderMouse()
+    {
+        GameObject obj = GetObjectUnderMouse();
+        if (obj != null)
+        {
+            SlotInfo info = obj.GetComponentInParent<SlotInfo>();
+            if (info != null) return info.x;
+        }
+        return -1;
+    }
     #endregion
 
     // ■ [NEW] ユニット生成の共通ヘルパー (Network/Local両対応)
@@ -2589,7 +2940,8 @@ public class GameManager : MonoBehaviour
         if (isHostAction)
         {
              if (!TryUseMana(card.cost)) return;
-             hand.Remove(card);
+             // ★修正：二重削除防止
+             if (hand.Contains(card)) hand.Remove(card);
              // Destroy UI Object corresponding to this card (Visual Sync)
              DestroyHandCardVisual(card, true);
         }
@@ -2641,8 +2993,15 @@ public class GameManager : MonoBehaviour
                 // Host (Master Client) should spawn and keep State Authority.
                 // Guest effectively controls it via RPCs to Host.
                 
-                PlayerRef owner = isHostAction ? runner.LocalPlayer : GetEnemyRef();
+                // [FIX] Always spawn as Host (State Authority) so we can initialize Networked Properties
+                PlayerRef owner = runner.LocalPlayer; 
                 NetworkObject no = runner.Spawn(prefab, Vector3.zero, Quaternion.identity, owner);
+                
+                // [FIX] Assign Input Authority to the actual sender (e.g. Guest)
+                if (sender != runner.LocalPlayer)
+                {
+                    no.AssignInputAuthority(sender);
+                }
                 
                 // Parent Setup
                 no.transform.SetParent(targetSlot, false);
@@ -2658,17 +3017,29 @@ public class GameManager : MonoBehaviour
                 {
                     mover.Initialize(card, isMyUnit);
                     
-                    // Host sets initial network state
-                    if (no.HasStateAuthority)
-                    {
-                         mover._netCardId = card.id;
-                         SlotInfo info = targetSlot.GetComponent<SlotInfo>();
+                // Host sets initial network state
+                if (no.HasStateAuthority)
+                {
+                     mover._netCardId = card.id;
+                     mover.OwnerPlayer = sender; 
+                     
+                     // ★FIX logic: Always use PlayerBoard to resolve X,Y from index.
+                     // The Sender (Guest) clicked on *their* PlayerBoard.
+                     // The Index corresponds to PlayerBoard layout.
+                     // We must resolve X,Y from PlayerBoard, then set it.
+                     // Previously we used targetSlot (Host's perspective), which might be EnemyBoard with reversed Y (Rotation).
+                     
+                     Transform refBoard = GameObject.Find("PlayerBoard").transform;
+                     if (slotIndex >= 0 && slotIndex < refBoard.childCount)
+                     {
+                         SlotInfo info = refBoard.GetChild(slotIndex).GetComponent<SlotInfo>();
                          if (info != null)
                          {
                              mover.NetworkedSlotX = info.x;
                              mover.NetworkedSlotY = info.y;
                          }
-                    }
+                     }
+                }
                 }
                     // ON_PLAY ability?
                     AbilityManager.instance.ProcessAbilities(card, EffectTrigger.ON_SUMMON, mover);
@@ -2676,22 +3047,42 @@ public class GameManager : MonoBehaviour
             }
         }
     // ★Host Authority Logic: スペルプレイ処理
-    public void ProcessOnlinePlaySpell(string cardId, NetworkId targetUnitId, bool isTargetLeader, bool isHostAction)
+    public void ProcessOnlinePlaySpell(string cardId, NetworkId targetUnitId, bool isTargetLeader, bool isHostAction, int targetColumn = -1)
     {
          // 1. Identify Card
          CardData card = isHostAction ? GetCardFromHand(cardId, true) : GetCardFromHand(cardId, false);
          if (card == null) 
          {
-             if (PlayerDataManager.instance != null) card = PlayerDataManager.instance.GetCardById(cardId);
-             if (card == null) card = Resources.Load<CardData>("Cards/" + cardId);
-             if (card == null) { Debug.LogError($"[GameManager] PlaySpell Failed: Card {cardId} not found"); return; }
+             if (cardId == "ManaCoin")
+             {
+                 // ★Virtual Card Generation for ManaCoin
+                 card = ScriptableObject.CreateInstance<CardData>();
+                 card.id = "ManaCoin";
+                 card.cardName = "マナコイン";
+                 card.cost = 0;
+                 card.type = CardType.SPELL;
+                 card.abilities = new List<CardAbility>();
+                 CardAbility ability = new CardAbility();
+                 ability.effect = EffectType.GAIN_MANA;
+                 ability.value = 1;
+                 ability.trigger = EffectTrigger.SPELL_USE;
+                 ability.target = EffectTarget.SELF;
+                 card.abilities.Add(ability);
+             }
+             else
+             {
+                 if (PlayerDataManager.instance != null) card = PlayerDataManager.instance.GetCardById(cardId);
+                 if (card == null) card = Resources.Load<CardData>("Cards/" + cardId);
+                 // If still null, log error
+                 if (card == null) { Debug.LogError($"[GameManager] PlaySpell Failed: Card {cardId} not found"); return; }
+             }
          }
 
          // 2. Consume Mana/Hand
          if (isHostAction)
          {
              if (!TryUseMana(card.cost)) return;
-             hand.Remove(card);
+             if (hand.Contains(card)) hand.Remove(card);
              DestroyHandCardVisual(card, true);
          }
          else
@@ -2702,9 +3093,10 @@ public class GameManager : MonoBehaviour
              if (toRemove != null) enemyHandData.Remove(toRemove);
              UpdateEnemyHandVisuals(enemyHandData.Count);
          }
-         
-         // 3. Resolve Target
-         object target = null;
+          
+          // 3. Resolve Target
+          this.lastTargetX = targetColumn; // ★Set target column context
+          object target = null;
          if (isTargetLeader)
          {
               // Check "Who is the Enemy of the Caster?"
@@ -2799,16 +3191,30 @@ public class GameManager : MonoBehaviour
         Transform area = isPlayer ? handArea : enemyHandArea;
         if (!area) return;
         
-        // Destroy ONLY ONE instance matching the card data
+        // 1. 指定されたエリア内を探す
         foreach(Transform t in area)
         {
             var cv = t.GetComponent<CardView>();
-            // Since CardData is ScriptableObject, reference comparison is valid for "Type".
-            // But we want to remove just the first visual that matches this type.
             if (cv && cv.cardData == card) 
             { 
                 Destroy(t.gameObject); 
-                return; // Prevent multiple deletions
+                return; 
+            }
+        }
+
+        // 2. ★修正：ドラッグ中の可能性を考慮し、ルートからも探す
+        if (isPlayer)
+        {
+            // ヒエラルキー全体からこのCardDataを持つCardViewを探す（ただし盤面に出ていないもの）
+            CardView[] allViews = FindObjectsOfType<CardView>();
+            foreach(var v in allViews)
+            {
+                // 手札エリア外（ドラッグ中）かつ、データが一致するもの
+                if (v.cardData == card && (v.transform.parent == null || v.transform.parent.root == v.transform.root))
+                {
+                    Destroy(v.gameObject);
+                    return;
+                }
             }
         }
     }

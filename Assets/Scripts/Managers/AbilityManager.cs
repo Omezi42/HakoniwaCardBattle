@@ -86,9 +86,11 @@ public class AbilityManager : MonoBehaviour
 
     public void ProcessAbilities(CardData card, EffectTrigger currentTrigger, UnitMover sourceUnit, object manualTarget = null)
     {
+        if (card == null || card.abilities == null) return;
+
         foreach (CardAbility ability in card.abilities)
         {
-            if (ability.trigger != currentTrigger) continue;
+            if (ability == null || ability.trigger != currentTrigger) continue;
 
             List<object> targets = GetTargets(ability.target, sourceUnit, manualTarget);
             int finalValue = CalculateFinalValue(card, ability);
@@ -450,19 +452,33 @@ public class AbilityManager : MonoBehaviour
 
     UnitMover GetFrontEnemy(UnitMover me)
     {
-        if (me.originalParent == null) return null;
-        SlotInfo mySlot = me.originalParent.GetComponent<SlotInfo>();
-        if (mySlot == null) return null;
-        
-        Transform targetBoard = me.isPlayerUnit ? GameManager.instance.enemyBoard : GameObject.Find("PlayerBoard").transform;
-        if (targetBoard == null) return null;
+        Transform targetBoard = GameManager.instance.enemyBoard;
+        int myX = -1;
 
-        List<UnitMover> frontEnemies = new List<UnitMover>();
-        List<UnitMover> backEnemies = new List<UnitMover>();
+        if (me != null)
+        {
+            if (me.originalParent == null) return null;
+            SlotInfo mySlot = me.originalParent.GetComponent<SlotInfo>();
+            if (mySlot != null) myX = mySlot.x;
+            targetBoard = me.isPlayerUnit ? GameManager.instance.enemyBoard : GameObject.Find("PlayerBoard").transform;
+        }
+        else
+        {
+            // Spell case: source is null. Use current targeting info from GameManager
+            // Assuming GameManager handles the 'Target Column' during spell drag.
+            myX = GameManager.instance.lastTargetX;
+            bool isPlayerSide = GameManager.instance.isPlayerTurn;
+            targetBoard = isPlayerSide ? GameManager.instance.enemyBoard : GameObject.Find("PlayerBoard").transform;
+            
+            Debug.Log($"[AbilityManager] GetFrontEnemy: Source is null (Spell). Targeting Column {myX} on {targetBoard?.name}");
+        }
+
+        if (targetBoard == null) return null;
         
-        // 優先ターゲット（正面の列）
+        // ロジック: 同じX座標（myX）の敵を優先、いなければ Front row のランダム
         UnitMover directFrontTarget = null;
         UnitMover directBackTarget = null;
+        List<UnitMover> anyFrontEnemies = new List<UnitMover>();
 
         foreach (Transform slot in targetBoard)
         {
@@ -472,44 +488,20 @@ public class AbilityManager : MonoBehaviour
                 var unit = slot.GetChild(0).GetComponent<UnitMover>();
                 if (unit != null)
                 {
-                    if (info.y == 0) // Front Row
+                    if (info.y == 0) anyFrontEnemies.Add(unit);
+                    
+                    if (myX != -1 && info.x == myX)
                     {
-                        frontEnemies.Add(unit);
-                        if (info.x == mySlot.x) directFrontTarget = unit;
-                    }
-                    else if (info.y == 1) // Back Row
-                    {
-                        backEnemies.Add(unit);
-                        if (info.x == mySlot.x) directBackTarget = unit;
+                        if (info.y == 0) directFrontTarget = unit;
+                        else if (info.y == 1) directBackTarget = unit;
                     }
                 }
             }
         }
 
-        // ロジック:
-        // 1. Front Row (y=0) に敵がいるか？
-        //    いるなら、その中から選ぶ。
-        //    優先順位: 正面の列 (Same X) -> ランダム
-        // 2. Front Row にいないなら、Back Row (y=1) から選ぶ。
-        //    優先順位: 正面の列 (Same X) -> ランダム
-        
-        if (frontEnemies.Count > 0 && backEnemies.Count > 0)
-        {
-            List<UnitMover> all = new List<UnitMover>();
-            all.AddRange(frontEnemies);
-            all.AddRange(backEnemies);
-            return all[UnityEngine.Random.Range(0, all.Count)];
-        }
-        else if (frontEnemies.Count > 0)
-        {
-             if (directFrontTarget != null && UnityEngine.Random.value < 0.5f) return directFrontTarget; // 50% chance for direct
-             return frontEnemies[UnityEngine.Random.Range(0, frontEnemies.Count)];
-        }
-        else if (backEnemies.Count > 0)
-        {
-             if (directBackTarget != null && UnityEngine.Random.value < 0.5f) return directBackTarget;
-             return backEnemies[UnityEngine.Random.Range(0, backEnemies.Count)];
-        }
+        if (directFrontTarget != null) return directFrontTarget;
+        if (directBackTarget != null) return directBackTarget;
+        if (anyFrontEnemies.Count > 0) return anyFrontEnemies[UnityEngine.Random.Range(0, anyFrontEnemies.Count)];
 
         return null;
     }

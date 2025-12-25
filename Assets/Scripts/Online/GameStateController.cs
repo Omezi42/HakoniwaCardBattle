@@ -81,8 +81,14 @@ public class GameStateController : NetworkBehaviour
         // Since we removed Player1JobId props, this polling logic needs to check NPC.
         // Or we can assume GameManager polls it.
         // For simplicity: Check Enemy NPC Job ID change.
-        
-        var enemyPC = NetworkPlayerController.Instances.FirstOrDefault(npc => npc.Owner != Runner.LocalPlayer);
+        // ★修正：有効なNetworkObjectのみを対象にし、現在のRunnerに属するもの、最新のものを取得する
+        var enemyPC = NetworkPlayerController.Instances.LastOrDefault(pc => 
+            pc != null &&
+            pc.Object != null && 
+            pc.Object.IsValid && 
+            pc.Runner == Runner &&
+            pc.Owner != Runner.LocalPlayer);
+
         if (enemyPC != null)
         {
              int currentEnemyJob = enemyPC.JobId;
@@ -93,20 +99,7 @@ public class GameStateController : NetworkBehaviour
             // UI Update
             if (GameManager.instance != null)
             {
-                // Identify which one is ME and which is ENEMY
-                // Sorted list
-                var sorted = Runner.ActivePlayers.OrderBy(p => p.PlayerId).ToList();
-                int enemyJob = -1;
-
-                // Simple: Find My NPC (Already done in GM usually, but okay here)
-                // var myPC = NetworkPlayerController.Get(Runner.LocalPlayer); 
-                
-                // enemyPC is already found above at line 85
-                
-                if (enemyPC != null) enemyJob = enemyPC.JobId;
-
-                // Apply
-                if (enemyJob != 0) GameManager.instance.SetEnemyLeaderIcon(enemyJob);
+                if (currentEnemyJob != 0) GameManager.instance.SetEnemyLeaderIcon(currentEnemyJob);
             }
         }
     }
@@ -595,35 +588,40 @@ public class GameStateController : NetworkBehaviour
             BattleLogManager.instance.AddLog(text, isPlayerAction, card);
         }
     }
-    // ★追加: クライアントからホストへステータスを通知する
+    // ★修正: クライアントからホストへステータスを通知する
     [Rpc(RpcSources.All, RpcTargets.StateAuthority)]
-    public void RPC_UpdatePlayerStats(int handCount, int deckCount, int graveCount, int currentHp, RpcInfo info = default)
+    public void RPC_UpdatePlayerStats(NetworkId pcId, int handCount, int deckCount, int graveCount, int currentHp, int currentMana, int maxMana, int jobId, RpcInfo info = default)
     {
-        // P1かP2か判定
-        var sorted = Runner.ActivePlayers.OrderBy(p => p.PlayerId).ToList();
-        if (sorted.Count > 0 && sorted[0] == info.Source)
+        // NetworkIdから直接オブジェクトを取得 (PlayerRef経由のGetより確実)
+        var obj = Runner.FindObject(pcId);
+        NetworkPlayerController pc = null;
+        if (obj != null) pc = obj.GetComponent<NetworkPlayerController>();
+
+        if (pc != null)
         {
-            var p1 = NetworkPlayerController.Get(sorted[0]);
-            if (p1 != null)
-            {
-                p1.HandCount = handCount;
-                p1.DeckCount = deckCount;
-                p1.GraveCount = graveCount;
-                p1.CurrentHp = currentHp;
-            }
+            pc.HandCount = handCount;
+            pc.DeckCount = deckCount;
+            pc.GraveCount = graveCount;
+            pc.CurrentHp = currentHp;
+            pc.CurrentMana = currentMana;
+            pc.MaxMana = maxMana;
+            pc.JobId = jobId;
+
+            // ★FIX: Force UI sync after stats update
+            if (GameManager.instance != null) GameManager.instance.SyncNetworkInfo();
         }
-        else if (sorted.Count > 1 && sorted[1] == info.Source)
+        else
         {
-            var p2 = NetworkPlayerController.Get(sorted[1]);
-            if (p2 != null)
+            // ゲーム開始直後はスポーンラグで見つからないことがあるため、警告を限定する
+            // NetworkId指定なら通常は見つかるはずだが、ラグでまだ届いていない可能性もある
+            if (TurnCount > 0)
             {
-                p2.HandCount = handCount;
-                p2.DeckCount = deckCount;
-                p2.GraveCount = graveCount;
-                p2.CurrentHp = currentHp;
+                // Debug.LogWarning($"[GameState] Received Stats for ID {pcId} but object not found.");
             }
         }
     }
+    // ★追加: ターン終了リクエストRPC
+    // ★追加: ターン終了リクエストRPC
     // ★追加: ターン終了リクエストRPC
     [Rpc(RpcSources.StateAuthority, RpcTargets.All)]
     public void RPC_UpdateBuildDurability(int buildIndex, int remainingTurns, bool isDestroy)
@@ -631,25 +629,18 @@ public class GameStateController : NetworkBehaviour
          if (GameManager.instance == null) return;
          if (GameManager.instance.activeBuilds == null || buildIndex < 0 || buildIndex >= GameManager.instance.activeBuilds.Count) return;
          
-         // Update Local State from Host
+         // Host manages the list, RPC syncs state by index
          if (isDestroy)
          {
              GameManager.instance.activeBuilds.RemoveAt(buildIndex);
-             // Re-render handled by updateUI? Need to force update
-             // We can access private method via reflection or just make UpdateBuildUI public? 
-             // It's private "UpdateBuildUI". But GameManager has public BuildConstruction etc.
-             // We'll rely on public "UpdateBuildUI" if exists or change it.
-             // Wait, "UpdateBuildUI" is private in GameManager.cs. 
-             // We should make it public or use reflection. 
-             // FOR NOW: Let's assume we make it public or just call a public wrapper.
-             // Wait, I can't change GameManager access modifier here easily without another edit.
-             // Let's modify GameManager first to expose UpdateBuildUI.
+             GameManager.instance.UpdateBuildUI();
          }
          else
          {
              var b = GameManager.instance.activeBuilds[buildIndex];
              b.remainingTurns = remainingTurns;
              GameManager.instance.activeBuilds[buildIndex] = b;
+             GameManager.instance.UpdateBuildUI();
          }
     }
     
@@ -766,16 +757,11 @@ public class GameStateController : NetworkBehaviour
         }
     }
     // ★追加: スペルプレイリクエストRPC
+    // ★追加: スペルプレイリクエストRPC
     [Rpc(RpcSources.All, RpcTargets.StateAuthority)]
-    public void RPC_RequestPlaySpell(string cardId, NetworkId targetUnitId, bool isTargetLeader, RpcInfo info = default)
+    public void RPC_RequestPlaySpell(string cardId, NetworkId targetUnitId, bool isTargetLeader, int targetColumn = -1, RpcInfo info = default)
     {
-        if (ActivePlayer != info.Source) return;
-
-        // Execute on Host
-        if (GameManager.instance != null)
-        {
-            bool isHostAction = (info.Source == Runner.LocalPlayer);
-            GameManager.instance.ProcessOnlinePlaySpell(cardId, targetUnitId, isTargetLeader, isHostAction);
-        }
+        bool isHostAction = (info.Source == Runner.LocalPlayer);
+        GameManager.instance.ProcessOnlinePlaySpell(cardId, targetUnitId, isTargetLeader, isHostAction, targetColumn);
     }
 }

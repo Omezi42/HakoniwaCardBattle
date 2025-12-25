@@ -26,7 +26,7 @@ public class Leader : MonoBehaviour, IDropHandler
     {
         if (hpText != null)
         {
-            hpText.text = "HP: " + currentHp;
+            hpText.text = "体力: " + currentHp;
         }
     }
 

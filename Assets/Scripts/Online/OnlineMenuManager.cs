@@ -40,7 +40,7 @@ public class OnlineMenuManager : MonoBehaviour
         string roomId = roomIdInputField.text.Trim();
         if (string.IsNullOrEmpty(roomId))
         {
-            SetStatus("Please enter a Room ID.", Color.red);
+            SetStatus("ルームIDを入力してください。", Color.red);
             return;
         }
 
@@ -54,6 +54,14 @@ public class OnlineMenuManager : MonoBehaviour
         {
             pagedDeckManager.Initialize();
             pagedDeckManager.OnDeckSelected = OnDeckSelected;
+        }
+
+        // Hide Offline Start Button to prevent confusion
+        // Ensure we try both direct ref (if I add it to Inspector later) or Find
+        MenuManager menu = FindObjectOfType<MenuManager>();
+        if (menu)
+        {
+            menu.SetStartButtonActive(false);
         }
     }
 
@@ -73,12 +81,12 @@ public class OnlineMenuManager : MonoBehaviour
 
     async void StartRandomMatchProcess()
     {
-        SetStatus("Connecting to Random Match...", Color.white);
+        SetStatus("ランダムマッチに接続中...", Color.white);
         
         // Ensure NetworkConnectionManager exists
         if (NetworkConnectionManager.instance == null)
         {
-            SetStatus("Network Manager missing!", Color.red);
+            SetStatus("ネットワーク接続エラー", Color.red);
             return;
         }
 
@@ -88,11 +96,11 @@ public class OnlineMenuManager : MonoBehaviour
 
     async void StartRoomProcess(GameMode mode, string roomName)
     {
-        SetStatus($"{(mode == GameMode.Host ? "Creating" : "Joining")} Room...", Color.white);
+        SetStatus($"{(mode == GameMode.Host ? "ルームを作成中" : "ルームに参加中")}...", Color.white);
 
         if (NetworkConnectionManager.instance == null)
         {
-            SetStatus("Network Manager missing!", Color.red);
+            SetStatus("ネットワーク接続エラー", Color.red);
             return;
         }
 
@@ -109,7 +117,7 @@ public class OnlineMenuManager : MonoBehaviour
             bool success = await NetworkConnectionManager.instance.StartSharedSession(roomName, "RoomScene", true);
             if (!success)
             {
-                SetStatus("Room Not Found.", Color.red);
+                SetStatus("ルームが見つかりません。", Color.red);
             }
         }
     }
