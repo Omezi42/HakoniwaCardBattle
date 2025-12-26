@@ -29,6 +29,15 @@ public class Draggable : MonoBehaviour, IBeginDragHandler, IDragHandler, IEndDra
     {
         if (GameManager.instance != null) GameManager.instance.OnClickCloseDetail();
         
+        // ★Fix: Validation on Drag Start
+        if (GameManager.instance != null && !GameManager.instance.isPlayerTurn) return;
+        
+        // ★Fix: Check ownership via parent HandArea logic
+        if (GameManager.instance != null && GameManager.instance.handArea != null)
+        {
+             if (!transform.IsChildOf(GameManager.instance.handArea) && transform.parent != GameManager.instance.handArea) return;
+        }
+        
         originalParent = transform.parent;
         transform.SetParent(transform.root);
         

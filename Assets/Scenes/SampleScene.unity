@@ -10273,6 +10273,8 @@ MonoBehaviour:
   enemyGraveyardCount: 0
   mainDeck: []
   hand: []
+  graveyard: []
+  enemyGraveyard: []
   enemyBoard: {fileID: 179182901}
   playerLeader: {fileID: 455338421}
   enemyLeaderObj: {fileID: 1539143125}
@@ -11176,8 +11178,8 @@ RectTransform:
   m_ConstrainProportionsScale: 0
   m_Children:
   - {fileID: 1310616984}
-  - {fileID: 1774610964}
   - {fileID: 2075987981}
+  - {fileID: 1774610964}
   - {fileID: 1660660318}
   m_Father: {fileID: 868639705}
   m_LocalEulerAnglesHint: {x: 0, y: 0, z: 0}

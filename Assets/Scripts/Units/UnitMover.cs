@@ -161,10 +161,13 @@ public class UnitMover : NetworkBehaviour, IBeginDragHandler, IDragHandler, IEnd
             }
 
             SyncParentSlot();
-            // Initial visual update for stealth
             if (_netHasStealth) GetComponent<CanvasGroup>().alpha = 0.5f;
             UpdateColor();
         }
+        
+        // ★Fix: Restore Summon Animation for Online Play
+        // Since RPC_RequestPlayUnit spawns the object, local client needs to play the animation when it arrives.
+        PlaySummonAnimation();
     }
     public override void FixedUpdateNetwork()
     {
@@ -489,11 +492,17 @@ public class UnitMover : NetworkBehaviour, IBeginDragHandler, IDragHandler, IEnd
                  BattleLogManager.instance.AddLog($"{sourceData.cardName} が リーダー に攻撃！", isPlayerUnit);
             }
 
+            // ★Fix: Remove Stealth on Attack (Online)
+            RemoveStealth();
+            
+            // ★Fix: Trigger "On Attack" Abilities (Host Only)
+            if (HasStateAuthority) AbilityManager.instance.ProcessAbilities(sourceData, EffectTrigger.ON_ATTACK, this);
+
             StartCoroutine(TackleAnimation(target.atkArea != null ? target.atkArea : target.transform, () => 
             {
                 GameManager.instance.PlaySE(GameManager.instance.seAttack);
-                // ★FIX: Spawn text at the 'Attack Point' (current unit position) instead of leader position
-                GameManager.instance.SpawnDamageText(transform.position + new Vector3(0, 50, 0), attackPower);
+                // ★FIX: Removed manual SpawnDamageText to prevent double text. 
+                // Leader.TakeDamage spawns text.
                 
                 target.TakeDamage(attackPower);
                 ConsumeAttack(); 
@@ -540,15 +549,15 @@ public class UnitMover : NetworkBehaviour, IBeginDragHandler, IDragHandler, IEnd
         {
             GameManager.instance.PlaySE(GameManager.instance.seAttack);
             
-            // ★FIX: Spawn Damage Text at Target ATKArea (or Unit Position fallback)
-            Vector3 textPos = target.atkArea != null ? target.atkArea.position : this.transform.position;
-            GameManager.instance.SpawnDamageText(textPos, this.attackPower);
-
+            // ★FIX: Reverted manual spawn to avoid double text on Host.
+            // Leader.TakeDamage(true) handles text spawning at atkArea.
+            // If Guest needs to see text, we rely on Leader.TakeDamage running on Guest or RPC.
+            // But since "Double Text" is annoying, we prioritize Host UX first.
+             
             // [Fix] Damage only on Authority (or Offline)
             if (isAuth)
             {
-                // Suppress default text (false) since we spawned it manually above
-                target.TakeDamage(attackPower, false);
+                target.TakeDamage(attackPower, true);
                 ConsumeAttack(); // State update
             }
         }));
@@ -777,7 +786,7 @@ public class UnitMover : NetworkBehaviour, IBeginDragHandler, IDragHandler, IEnd
         }
     }
     
-    [Rpc(RpcSources.InputAuthority, RpcTargets.StateAuthority)]
+    [Rpc(RpcSources.All, RpcTargets.StateAuthority)]
     public void RPC_MoveToSlot(int x, int y)
     {
          // Host receives request from Guest to move THIS unit to (x, y)

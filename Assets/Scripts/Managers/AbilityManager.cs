@@ -55,7 +55,7 @@ public class AbilityManager : MonoBehaviour
     private void ExecuteBuildAbility(CardAbility ability, ActiveBuild build)
     {
         Debug.Log($"[BuildEffect] Executing Ability: {ability.effect} for {(build.isPlayerOwner?"Player":"Enemy")} Build");
-        List<object> targets = GetTargets(ability.target, null, null, build);
+        List<object> targets = GetTargets(ability.target, null, null, build, build.isPlayerOwner);
         if (targets.Count == 0 && (ability.effect == EffectType.DRAW_CARD || ability.effect == EffectType.GAIN_MANA))
         {
             ActivateBuildAbility(ability, null, build);
@@ -84,7 +84,7 @@ public class AbilityManager : MonoBehaviour
         }
     }
 
-    public void ProcessAbilities(CardData card, EffectTrigger currentTrigger, UnitMover sourceUnit, object manualTarget = null)
+    public void ProcessAbilities(CardData card, EffectTrigger currentTrigger, UnitMover sourceUnit, object manualTarget = null, bool? isPlayerSideOverride = null)
     {
         if (card == null || card.abilities == null) return;
 
@@ -92,27 +92,27 @@ public class AbilityManager : MonoBehaviour
         {
             if (ability == null || ability.trigger != currentTrigger) continue;
 
-            List<object> targets = GetTargets(ability.target, sourceUnit, manualTarget);
-            int finalValue = CalculateFinalValue(card, ability);
+            List<object> targets = GetTargets(ability.target, sourceUnit, manualTarget, null, isPlayerSideOverride);
+            int finalValue = CalculateFinalValue(card, ability, isPlayerSideOverride);
 
-            ApplyAbilityToTargets(ability, targets, finalValue, sourceUnit);
+            ApplyAbilityToTargets(ability, targets, finalValue, sourceUnit, isPlayerSideOverride);
         }
     }
 
-    private int CalculateFinalValue(CardData card, CardAbility ability)
+    private int CalculateFinalValue(CardData card, CardAbility ability, bool? isPlayerSideOverride = null)
     {
         int finalValue = ability.value;
         if (card.type == CardType.SPELL && ability.effect == EffectType.DAMAGE)
         {
-            finalValue += CalculateSpellDamageBonus();
+            finalValue += CalculateSpellDamageBonus(isPlayerSideOverride);
         }
         return finalValue;
     }
 
-    private int CalculateSpellDamageBonus()
+    private int CalculateSpellDamageBonus(bool? isPlayerSideOverride = null)
     {
         int bonus = 0;
-        bool isPlayerTurn = GameManager.instance.isPlayerTurn;
+        bool isPlayerTurn = isPlayerSideOverride.HasValue ? isPlayerSideOverride.Value : GameManager.instance.isPlayerTurn;
         Transform myBoard = isPlayerTurn ? GameObject.Find("PlayerBoard").transform : GameManager.instance.enemyBoard;
         
         if (myBoard != null)
@@ -136,24 +136,25 @@ public class AbilityManager : MonoBehaviour
         return bonus;
     }
 
-    private void ApplyAbilityToTargets(CardAbility ability, List<object> targets, int finalValue, UnitMover sourceUnit)
+    private void ApplyAbilityToTargets(CardAbility ability, List<object> targets, int finalValue, UnitMover sourceUnit, bool? isPlayerSideOverride = null)
     {
         if (targets.Count == 0 && (ability.effect == EffectType.DRAW_CARD || ability.effect == EffectType.GAIN_MANA))
         {
-            ApplyEffect(null, ability.effect, finalValue, sourceUnit);
+            ApplyEffect(null, ability.effect, finalValue, sourceUnit, null, isPlayerSideOverride);
         }
         else
         {
-            foreach (object target in targets) ApplyEffect(target, ability.effect, finalValue, sourceUnit);
+            foreach (object target in targets) ApplyEffect(target, ability.effect, finalValue, sourceUnit, null, isPlayerSideOverride);
         }
     }
 
-    List<object> GetTargets(EffectTarget targetType, UnitMover source, object manualTarget, ActiveBuild buildSource = null) 
+    List<object> GetTargets(EffectTarget targetType, UnitMover source, object manualTarget, ActiveBuild buildSource = null, bool? isPlayerSideOverride = null) 
     {
         List<object> results = new List<object>();
         bool isPlayerSide = true;
         
-        if (source != null) isPlayerSide = source.isPlayerUnit;
+        if (isPlayerSideOverride.HasValue) isPlayerSide = isPlayerSideOverride.Value;
+        else if (source != null) isPlayerSide = source.isPlayerUnit;
         else if (buildSource != null) isPlayerSide = buildSource.isPlayerOwner;
         else isPlayerSide = GameManager.instance.isPlayerTurn;
         
@@ -293,10 +294,11 @@ public class AbilityManager : MonoBehaviour
         return results;
     }
 
-    void ApplyEffect(object target, EffectType effectType, int value, UnitMover source, ActiveBuild sourceBuild = null)
+    void ApplyEffect(object target, EffectType effectType, int value, UnitMover source, ActiveBuild sourceBuild = null, bool? isPlayerSideOverride = null)
     {
         bool isPlayerSide = true;
-        if (source != null) isPlayerSide = source.isPlayerUnit;
+        if (isPlayerSideOverride.HasValue) isPlayerSide = isPlayerSideOverride.Value;
+        else if (source != null) isPlayerSide = source.isPlayerUnit;
         else if (sourceBuild != null) isPlayerSide = sourceBuild.isPlayerOwner;
         else isPlayerSide = GameManager.instance.isPlayerTurn;
 
@@ -375,47 +377,47 @@ public class AbilityManager : MonoBehaviour
                 else if (target is Leader leader) 
                 {
                     leader.TakeDamage(value);
-                    // ★Sync: If Host damages Enemy Leader (Dummy), tell Guest to take damage
+                    // ★Sync: Always notify clients of Leader damage (Host Self or Enemy)
                     var gameState = FindObjectOfType<GameStateController>();
                     if (gameState != null && gameState.Object.HasStateAuthority)
                     {
-                         // Using name/tag check or just logic
-                         // If leader is NOT playerLeader, it's Enemy.
+                         // Find the PlayerRef owning this Leader
+                         var targetRef = gameState.Runner.LocalPlayer; // Default to Host
+                         
+                         // If it's NOT Host's leader, it's the Enemy (Guest)'s leader
                          if (GameManager.instance.playerLeader != null && leader.gameObject != GameManager.instance.playerLeader.gameObject)
                          {
-                             // Find Enemy PlayerRef
-                             var enemyRef = Fusion.PlayerRef.None;
                              foreach(var p in gameState.Runner.ActivePlayers) 
                              {
-                                 if (p != gameState.Runner.LocalPlayer) { enemyRef = p; break; }
-                             }
-                             
-                             if (enemyRef != Fusion.PlayerRef.None)
-                             {
-                                 gameState.RPC_DirectDamageToLeader(enemyRef, value);
+                                 if (p != gameState.Runner.LocalPlayer) { targetRef = p; break; }
                              }
                          }
+                         
+                         // Broadcast damage event
+                         gameState.RPC_DirectDamageToLeader(targetRef, value);
                     }
                 }
                 break;
+
             case EffectType.HEAL:
                 if (targetUnit != null) targetUnit.Heal(value);
                 else if (target is Leader leader) 
                 {
                     leader.TakeDamage(-value);
-                     // ★Sync: Heal also needs sync if it hits Enemy Leader (unlikely but possible)
+                     // ★Sync: Sync Heal too
                     var gameState = FindObjectOfType<GameStateController>();
                     if (gameState != null && gameState.Object.HasStateAuthority)
                     {
+                         var targetRef = gameState.Runner.LocalPlayer;
                          if (GameManager.instance.playerLeader != null && leader.gameObject != GameManager.instance.playerLeader.gameObject)
                          {
-                             var enemyRef = Fusion.PlayerRef.None;
-                             foreach(var p in gameState.Runner.ActivePlayers) { if (p != gameState.Runner.LocalPlayer) { enemyRef = p; break; } }
-                             if (enemyRef != Fusion.PlayerRef.None) gameState.RPC_DirectDamageToLeader(enemyRef, -value);
+                             foreach(var p in gameState.Runner.ActivePlayers) { if (p != gameState.Runner.LocalPlayer) { targetRef = p; break; } }
                          }
+                         gameState.RPC_DirectDamageToLeader(targetRef, -value);
                     }
                 }
                 break;
+
             case EffectType.BUFF_ATTACK:
                 if (targetUnit != null) 
                 { 

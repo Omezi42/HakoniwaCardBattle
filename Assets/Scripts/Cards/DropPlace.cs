@@ -89,7 +89,7 @@ public class DropPlace : MonoBehaviour, IDropHandler, IPointerEnterHandler, IPoi
                         if (GameManager.instance.currentMana >= draggedCard.cardData.cost)
                         {
                     // Send Request
-                    gameState.RPC_RequestPlayUnit(draggedCard.cardData.id, transform.GetSiblingIndex());
+                    gameState.RPC_RequestPlayUnit(draggedCard.cardData.id, transform.GetSiblingIndex(), default, false);
                     
                     // Local Cleanup (Visuals/State)
                     // ★FIX: Host (StateAuthority) should NOT do local cleanup here, 

@@ -461,7 +461,19 @@ public class GameStateController : NetworkBehaviour
             Debug.Log($"[GameState] Turn Change Detected! From {_lastActivePlayer} to {ActivePlayer}. TurnCount: {_lastTurnCount} -> {TurnCount}");
             _lastActivePlayer = ActivePlayer;
             _lastTurnCount = TurnCount;
-            OnTurnChanged();
+            OnTurnChanged(); // UI Update
+
+            // ★FIX: Visualize Enemy Turn Start (Draw/Mana) locally
+            if (ActivePlayer != Runner.LocalPlayer && ActivePlayer != PlayerRef.None && GameManager.instance != null)
+            {
+                 // Opponent Turn Started effectively
+                 Debug.Log($"[GameState] Enemy Turn Started. Visualizing Draw/Mana.");
+                 // 1. Draw Animation (Standard Turn Draw = 1)
+                 GameManager.instance.EnemyDrawCard(1);
+                 // 2. Mana Update? (Usually handled by Networked var sync, but EnemyManaUI might need refresh)
+                 // Note: EnemyDrawCard will animate hand and count.
+                 // Actual Mana value Sync happens via RPC_UpdatePlayerStats.
+            }
         }
     }
 
@@ -525,28 +537,7 @@ public class GameStateController : NetworkBehaviour
         }
     }
 
-    // ★追加: 建築同期用RPC
-    [Rpc(RpcSources.All, RpcTargets.All)]
-    public void RPC_ConstructBuild(string cardId, bool isPlayerOwner, RpcInfo info = default)
-    {
-        // 発動者が isPlayerOwner = true で送ってくる。
-        // 受信側が「自分」なら isPlayerOwnerそのまま。
-        // 受信側が「相手」なら、論理反転させる必要がある？
-        
-        // いや、RPCの引数は「発動者視点」で送るとややこしい。
-        // ここでは「絶対的なOwnership」を送るべきだが、P1/P2の概念がないと難しい。
-        
-        // なので、Senderと比較する。
-        bool isMine = (Runner.LocalPlayer == info.Source); // RPCを送ったのが自分ならTrue
-        
-        if (isMine) return; // 送信元は既に処理済み(投機実行)としているならリターン
-
-        if (GameManager.instance != null)
-        {
-            // 相手が建てた = isPlayer=falseとして処理
-            GameManager.instance.ConstructBuildByEffect(cardId, false);
-        }
-    }
+    // (Duplicate RPC_ConstructBuild removed)
 
     // ★追加: リタイア用RPC
     [Rpc(RpcSources.All, RpcTargets.All)]
@@ -626,6 +617,9 @@ public class GameStateController : NetworkBehaviour
     [Rpc(RpcSources.StateAuthority, RpcTargets.All)]
     public void RPC_UpdateBuildDurability(int buildIndex, int remainingTurns, bool isDestroy)
     {
+         // Host (StateAuthority) already applied logic locally. Ignore RPC echo.
+         if (Object.HasStateAuthority) return;
+
          if (GameManager.instance == null) return;
          if (GameManager.instance.activeBuilds == null || buildIndex < 0 || buildIndex >= GameManager.instance.activeBuilds.Count) return;
          
@@ -673,6 +667,21 @@ public class GameStateController : NetworkBehaviour
         TurnCount++;
     }
 
+    // ★追加: 建築同期用RPC (全員に送信)
+    [Rpc(RpcSources.All, RpcTargets.All)]
+    public void RPC_ConstructBuild(string buildId, bool isPlayerOwner, RpcInfo info = default)
+    {
+        if (GameManager.instance == null) return;
+        
+        // HostとGuestで視点が異なるため補正
+        // RPCの送信者が自分なら isPlayerOwner そのまま。
+        // 送信者が相手なら、isPlayerOwner の反転（自分から見て敵の建築）
+        bool isMeRecipient = (info.Source == Runner.LocalPlayer);
+        bool localIsPlayer = isMeRecipient ? isPlayerOwner : !isPlayerOwner;
+
+        GameManager.instance.ConstructBuildByEffect(buildId, localIsPlayer);
+    }
+
     // ★追加: 効果ダメージなどを相手リーダーに与えるためのRPC
     [Rpc(RpcSources.StateAuthority, RpcTargets.All)]
     public void RPC_DirectDamageToLeader(PlayerRef targetPlayer, int damage)
@@ -694,7 +703,7 @@ public class GameStateController : NetworkBehaviour
 
     // ★追加: カードプレイリクエストRPC
     [Rpc(RpcSources.All, RpcTargets.StateAuthority)]
-    public void RPC_RequestPlayUnit(string cardId, int slotIndex, RpcInfo info = default)
+    public void RPC_RequestPlayUnit(string cardId, int slotIndex, NetworkId targetUnitId, bool isTargetLeader, RpcInfo info = default)
     {
         // 1. Validate (Is it sender's turn?)
         if (ActivePlayer != info.Source) 
@@ -706,7 +715,17 @@ public class GameStateController : NetworkBehaviour
         // 2. Execute Logic on Host
         if (GameManager.instance != null)
         {
-            GameManager.instance.ProcessOnlinePlayUnit(cardId, slotIndex, info.Source == Runner.LocalPlayer, info.Source);
+            // isHostAction should be true if info.Source == Runner.LocalPlayer
+            bool isHostAction = (info.Source == Runner.LocalPlayer);
+            
+            // ★FIX: Process play but DO NOT consume mana AGAIN if it's the Host's own action (already consumed locally)
+            // If it's a Guest action (Host acting as Authority), then consumeMana should be true?
+            // Wait, Guest already consumed mana locally. Host tracking should reflects Guest's mana.
+            // Host tracking: enemyCurrentMana = Mathf.Max(0, enemyCurrentMana - card.cost); (Inside ProcessOnlinePlayUnit)
+            // So for Guest, we pass 'isHostAction=false'.
+            // For Host, we pass 'isHostAction=true', but consumeMana=false.
+            
+            GameManager.instance.ProcessOnlinePlayUnit(cardId, slotIndex, isHostAction, info.Source, targetUnitId, isTargetLeader, !isHostAction);
         }
     }
     // ★追加: 攻撃リクエストRPC
@@ -762,6 +781,8 @@ public class GameStateController : NetworkBehaviour
     public void RPC_RequestPlaySpell(string cardId, NetworkId targetUnitId, bool isTargetLeader, int targetColumn = -1, RpcInfo info = default)
     {
         bool isHostAction = (info.Source == Runner.LocalPlayer);
-        GameManager.instance.ProcessOnlinePlaySpell(cardId, targetUnitId, isTargetLeader, isHostAction, targetColumn);
+        // ★FIX: Same as PlayUnit. Host already paid locally. Guest paid locally.
+        // Host tracking of Guest mana is handled inside ProcessOnlinePlaySpell (enemyCurrentMana -= cost).
+        GameManager.instance.ProcessOnlinePlaySpell(cardId, targetUnitId, isTargetLeader, isHostAction, targetColumn, !isHostAction);
     }
 }
