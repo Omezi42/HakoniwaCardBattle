@@ -31,11 +31,18 @@ public class Leader : MonoBehaviour, IDropHandler
     }
 
     // ダメージ処理（回復も対応）
-    public void TakeDamage(int damage)
+    public void TakeDamage(int damage, bool showText = true)
     {
         // ダメージ音（回復以外）
         if (damage > 0) GameManager.instance.PlaySE(GameManager.instance.seDamage);
-        GameManager.instance.SpawnDamageText(transform.position, damage);
+        
+        // ★FIX: Allow suppressing text (for Unit attacks)
+        if (showText) 
+        {
+             Vector3 spawnPos = (atkArea != null) ? atkArea.position : transform.position;
+             GameManager.instance.SpawnDamageText(spawnPos, damage);
+        }
+        
         currentHp -= damage;
         
         // 最大値を超えないように（回復用）

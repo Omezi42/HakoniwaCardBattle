@@ -48,7 +48,9 @@ public class GameManager : MonoBehaviour
     [Header("デッキ・手札")]
     [Header("デッキ・手札")]
     public List<CardData> mainDeck = new List<CardData>();
-    public List<CardData> hand = new List<CardData>(); // Fixed missing 'hand'
+    public List<CardData> hand = new List<CardData>(); 
+    public List<CardData> graveyard = new List<CardData>(); // ★FIX: Added missing Graveyard list
+    public List<CardData> enemyGraveyard = new List<CardData>(); // ★FIX: Added missing Enemy Graveyard list
 
 
     [Header("敵のステータス")]
@@ -416,6 +418,7 @@ public class GameManager : MonoBehaviour
             if (data == null) continue;
             CardView newCard = Instantiate(cardPrefab, handArea);
             newCard.SetCard(data);
+            hand.Add(data); // ★FIX: Add to hand list for sync stats
             newCard.transform.localScale = Vector3.one;
             newCard.transform.localRotation = Quaternion.identity;
             newCard.ShowBack(false);
@@ -531,6 +534,7 @@ public class GameManager : MonoBehaviour
         // Add to Hand
         CardView newCard = Instantiate(cardPrefab, handArea);
         newCard.SetCard(coin);
+        hand.Add(coin); // ★FIX
         newCard.ShowBack(false);
     }
 
@@ -777,6 +781,10 @@ public class GameManager : MonoBehaviour
                 SendStatsToHost(gameState, myJobId, myPC.Object.Id);
             }
         }
+        else
+        {
+             Debug.LogWarning("[SyncNetworkInfo] Generic failure: myPC is null!");
+        }
 
         // --- 2. Read Enemy Stats from Network ---
         // ★修正：有効なNetworkObjectのみを対象にし、現在のRunnerに属するもの、かつ最新のものを取得する
@@ -792,12 +800,18 @@ public class GameManager : MonoBehaviour
         if (enemyPC == null)
         {
              var allPCs = FindObjectsOfType<NetworkPlayerController>();
+             // Debug.LogWarning($"[Sync] EnemyPC NOT found in Instances (Count={NetworkPlayerController.Instances.Count}). FindObjectsOfType found {allPCs.Length}. Dumping Instances:");
+             // foreach(var inst in NetworkPlayerController.Instances)
+             // {
+             //     Debug.Log($" - PC: ID={inst.Object?.Id}, Owner={inst.Owner}, InputAuth={inst.Object?.InputAuthority}, IsValid={inst.Object?.IsValid}");
+             // }
+
              foreach(var pc in allPCs)
              {
                  if (pc != null && pc.Object != null && pc.Object.IsValid && pc.Object.InputAuthority != gameState.Runner.LocalPlayer)
                  {
                      enemyPC = pc;
-                     // Debug.Log("[Sync] Found Enemy PC via FindObjectsOfType fallback");
+                     Debug.Log("[Sync] Found Enemy PC via FindObjectsOfType fallback");
                      break;
                  }
              }
@@ -861,11 +875,11 @@ public class GameManager : MonoBehaviour
              UpdateDeckGraveyardVisuals(); 
              
              // デバッグ用: 同期データをログ出力
-             Debug.Log($"[Sync] EnemyPC Stats: HP={enemyPC.CurrentHp}, Hand={enemyPC.HandCount}, Deck={enemyPC.DeckCount}, Grave={enemyPC.GraveCount}, Mana={enemyPC.CurrentMana}/{enemyPC.MaxMana}, Job={enemyPC.JobId}");
+             Debug.Log($"[Sync] EnemyPC Found! Stats: HP={enemyPC.CurrentHp}, Hand={enemyPC.HandCount}, Deck={enemyPC.DeckCount}, Job={enemyPC.JobId}");
         }
         else
         {
-             // Debug.Log("[SyncNetworkInfo] No Enemy PC found.");
+             // Debug.LogWarning("[SyncNetworkInfo] No Enemy PC found.");
         }
         // Debug.Log($"[SyncNetworkInfo] Player Hand: {hand.Count}, Deck: {mainDeck.Count}, Grave: {playerGraveyardCount}, Mana: {currentMana}, MaxMana: {maxMana}, Job: {myJobId}");
     }
@@ -910,7 +924,7 @@ public class GameManager : MonoBehaviour
         if (enemyHandArea != null)
         {
             int current = enemyHandArea.childCount;
-            Debug.Log($"[Sync] Enemy Hand UI Count: {current} -> Target: {targetCount}");
+            // Debug.Log($"[Sync] Enemy Hand UI Count: {current} -> Target: {targetCount}");
             
             if (current < targetCount)
             {
@@ -1452,9 +1466,25 @@ public class GameManager : MonoBehaviour
             } 
             else 
             { 
-                cardData = enemyMainDeck[0]; 
-                enemyMainDeck.RemoveAt(0); 
-                enemyDeckCount = enemyMainDeck.Count; 
+                if (enemyMainDeck.Count > 0)
+                {
+                    cardData = enemyMainDeck[0]; 
+                    enemyMainDeck.RemoveAt(0); 
+                }
+                else
+                {
+                    // ★FIX: Create Dummy Card if deck is empty (Client Side)
+                   cardData = ScriptableObject.CreateInstance<CardData>();
+                   cardData.cardName = "Unknown";
+                   cardData.id = "Hidden";
+                }
+                
+                enemyDeckCount = Mathf.Max(0, enemyMainDeck.Count); // Or sync?
+                // Actually enemyMainDeck is not synced fully.
+                // Just use list count if valid, or rely on RPC count?
+                // RPC_SyncDraw passes 'count'. We don't get absolute deck count.
+                // But we should decrement visuals.
+                
                 enemyHandData.Add(cardData); 
             } 
             PlaySE(seDraw); 
@@ -1471,6 +1501,9 @@ public class GameManager : MonoBehaviour
             GameObject prefabToUse = isPlayer ? cardPrefab.gameObject : (cardBackPrefab != null ? cardBackPrefab : cardPrefab.gameObject);
             
             GameObject cardObj = Instantiate(prefabToUse, tempParent); 
+            
+            // ★FIX: Add to hand list immediately
+            if(isPlayer) hand.Add(cardData); 
             
             // If we used CardView as back
             if (!isPlayer && prefabToUse == cardPrefab.gameObject)
@@ -2476,6 +2509,35 @@ public class GameManager : MonoBehaviour
         }
     }
 
+    // ★New Ramp Effect
+    public void GainMaxMana(int amount, bool isPlayer)
+    {
+        if (isPlayer)
+        {
+            if (maxMana < 10) 
+            {
+                maxMana = Mathf.Min(maxMana + amount, 10);
+                // Usually gaining a crystal also gives you a full crystal (Current +1)
+                // Assuming standard Ramp behavior: "Gain an empty Mana Crystal" vs "Gain a Mana Crystal"
+                // User said: "Max Mana +1 effect". Let's assume it fills it too (Current +1).
+                currentMana = Mathf.Min(currentMana + amount, maxMana); 
+                UpdateManaUI();
+            }
+            else
+            {
+                // Cap reached -> Optionally convert to coin?
+                // For now, simple cap.
+                GameManager.instance.GainMana(1, isPlayer); // Fallback to Coin if maxed (Hearthstone style)
+            }
+        }
+        else
+        {
+             if (enemyMaxMana < 10) enemyMaxMana = Mathf.Min(enemyMaxMana + amount, 10);
+             enemyCurrentMana = Mathf.Min(enemyCurrentMana + amount, enemyMaxMana);
+             UpdateEnemyManaUI();
+        }
+    }
+
     System.Collections.IEnumerator AnimateManaCrystalGain(int startIndex, int count)
     {
         if (playerManaCrystals == null) yield break;
@@ -2900,6 +2962,10 @@ public class GameManager : MonoBehaviour
              no.transform.SetParent(parent, false);
              no.transform.localPosition = Vector3.zero;
              
+             // ★FIX: Assign OwnerPlayer immediately for SyncParentSlot to work
+             var m = no.GetComponent<UnitMover>();
+             if (m != null) m.OwnerPlayer = inputAuth;
+
              return no.gameObject;
         }
         else
@@ -3079,20 +3145,38 @@ public class GameManager : MonoBehaviour
          }
 
          // 2. Consume Mana/Hand
-         if (isHostAction)
-         {
-             if (!TryUseMana(card.cost)) return;
-             if (hand.Contains(card)) hand.Remove(card);
-             DestroyHandCardVisual(card, true);
-         }
-         else
-         {
-             enemyCurrentMana = Mathf.Max(0, enemyCurrentMana - card.cost);
-             UpdateEnemyManaUI();
-             CardData toRemove = enemyHandData.FirstOrDefault(c => c.id == cardId);
-             if (toRemove != null) enemyHandData.Remove(toRemove);
-             UpdateEnemyHandVisuals(enemyHandData.Count);
-         }
+          if (isHostAction)
+          {
+              if (!TryUseMana(card.cost)) return;
+              if (hand.Contains(card)) hand.Remove(card);
+              
+              // ★FIX: Add to Graveyard (Host)
+              if (graveyard != null)
+              {
+                   graveyard.Add(card);
+                   UpdateDeckGraveyardVisuals();
+              }
+              
+              DestroyHandCardVisual(card, true);
+          }
+          else
+          {
+              enemyCurrentMana = Mathf.Max(0, enemyCurrentMana - card.cost);
+              UpdateEnemyManaUI();
+              CardData toRemove = enemyHandData.FirstOrDefault(c => c.id == cardId);
+              if (toRemove != null) 
+              {
+                  enemyHandData.Remove(toRemove);
+                  
+                  // ★FIX: Add to Enemy Graveyard (Visual Sync)
+                  if (enemyGraveyard != null)
+                  {
+                      enemyGraveyard.Add(toRemove);
+                      UpdateDeckGraveyardVisuals();
+                  }
+              }
+              UpdateEnemyHandVisuals(enemyHandData.Count);
+          }
           
           // 3. Resolve Target
           this.lastTargetX = targetColumn; // ★Set target column context

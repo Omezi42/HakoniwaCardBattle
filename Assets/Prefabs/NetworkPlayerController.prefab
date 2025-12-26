@@ -9,8 +9,8 @@ GameObject:
   serializedVersion: 6
   m_Component:
   - component: {fileID: 6542010302409230498}
-  - component: {fileID: 533538794625629449}
   - component: {fileID: 7119482953308463525}
+  - component: {fileID: 533538794625629449}
   m_Layer: 0
   m_Name: NetworkPlayerController
   m_TagString: Untagged
@@ -33,18 +33,6 @@ Transform:
   m_Children: []
   m_Father: {fileID: 0}
   m_LocalEulerAnglesHint: {x: 0, y: 0, z: 0}
---- !u!114 &533538794625629449
-MonoBehaviour:
-  m_ObjectHideFlags: 0
-  m_CorrespondingSourceObject: {fileID: 0}
-  m_PrefabInstance: {fileID: 0}
-  m_PrefabAsset: {fileID: 0}
-  m_GameObject: {fileID: 7934566430597106741}
-  m_Enabled: 1
-  m_EditorHideFlags: 0
-  m_Script: {fileID: 11500000, guid: 66edb70dff74bbe43a4e3c5777a794eb, type: 3}
-  m_Name: 
-  m_EditorClassIdentifier: 
 --- !u!114 &7119482953308463525
 MonoBehaviour:
   m_ObjectHideFlags: 0
@@ -64,3 +52,23 @@ MonoBehaviour:
   NetworkedBehaviours:
   - {fileID: 533538794625629449}
   ForceRemoteRenderTimeframe: 0
+--- !u!114 &533538794625629449
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 7934566430597106741}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: 66edb70dff74bbe43a4e3c5777a794eb, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: 
+  _JobId: 0
+  _CurrentHp: 20
+  _MaxHp: 20
+  _CurrentMana: 0
+  _MaxMana: 0
+  _HandCount: 0
+  _DeckCount: 0
+  _GraveCount: 0

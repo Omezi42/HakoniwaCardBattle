@@ -323,6 +323,9 @@ public class AbilityManager : MonoBehaviour
             case EffectType.GAIN_MANA:
                 GameManager.instance.GainMana(value, isPlayerSide);
                 return true;
+            case EffectType.GAIN_MAX_MANA: // ★New Ramp
+                GameManager.instance.GainMaxMana(value, isPlayerSide);
+                return true;
             case EffectType.DRAW_CARD:
                 PerformDrawCard(value, isPlayerSide, target);
                 return true;

@@ -448,7 +448,7 @@ public class GameStateController : NetworkBehaviour
             // Guest also needs to know we are waiting here (Check flag to suppress wait if we know turn started)
             if (!_descTurn1RPCReceived && _logTimer % 300 == 0) // Reduced frequency (once per 5s)
             {
-                Debug.Log($"[GameState] Waiting for Turn 1... Turn={TurnCount} P1Mul:{IsP1MulliganDone} P2Mul:{IsP2MulliganDone}");
+                // Debug.Log($"[GameState] Waiting for Turn 1... Turn={TurnCount} P1Mul:{IsP1MulliganDone} P2Mul:{IsP2MulliganDone}");
             }
             return;
         }

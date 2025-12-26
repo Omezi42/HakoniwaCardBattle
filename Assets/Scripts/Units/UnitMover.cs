@@ -539,10 +539,16 @@ public class UnitMover : NetworkBehaviour, IBeginDragHandler, IDragHandler, IEnd
         StartCoroutine(TackleAnimation(targetTransform, () => 
         {
             GameManager.instance.PlaySE(GameManager.instance.seAttack);
+            
+            // ★FIX: Spawn Damage Text at Target ATKArea (or Unit Position fallback)
+            Vector3 textPos = target.atkArea != null ? target.atkArea.position : this.transform.position;
+            GameManager.instance.SpawnDamageText(textPos, this.attackPower);
+
             // [Fix] Damage only on Authority (or Offline)
             if (isAuth)
             {
-                target.TakeDamage(attackPower);
+                // Suppress default text (false) since we spawned it manually above
+                target.TakeDamage(attackPower, false);
                 ConsumeAttack(); // State update
             }
         }));

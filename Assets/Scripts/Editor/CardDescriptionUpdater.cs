@@ -190,6 +190,7 @@ public class CardDescriptionUpdater : EditorWindow
             case EffectType.FORCE_MOVE: 
                 return "を"; 
             case EffectType.GAIN_MANA: 
+            case EffectType.GAIN_MAX_MANA: // ★追加
             case EffectType.BUFF_ATTACK: 
             case EffectType.BUFF_HEALTH: 
                 return "の"; 
@@ -214,7 +215,8 @@ public class CardDescriptionUpdater : EditorWindow
             case EffectType.HEAL: return $"{value}回復する"; 
             case EffectType.BUFF_ATTACK: return $"攻撃力を+{value}する"; 
             case EffectType.BUFF_HEALTH: return $"体力を+{value}する"; 
-            case EffectType.GAIN_MANA: return $"マナ最大値を+{value}する"; 
+            case EffectType.GAIN_MANA: return $"マナを+{value}する"; 
+            case EffectType.GAIN_MAX_MANA: return $"マナ最大値を+{value}する"; 
             case EffectType.DESTROY: return "破壊する"; 
             case EffectType.DRAW_CARD: return $"カードを{value}枚引く"; 
             case EffectType.FORCE_MOVE: return "手札に戻す"; 
@@ -236,7 +238,8 @@ public class CardDescriptionUpdater : EditorWindow
             case EffectType.HEAL: return $"{value}回復し"; 
             case EffectType.BUFF_ATTACK: return $"攻撃力を+{value}し"; 
             case EffectType.BUFF_HEALTH: return $"体力を+{value}し"; 
-            case EffectType.GAIN_MANA: return $"マナ最大値を+{value}し"; 
+            case EffectType.GAIN_MANA: return $"マナを+{value}し"; 
+            case EffectType.GAIN_MAX_MANA: return $"マナ最大値を+{value}し"; 
             case EffectType.DESTROY: return "破壊し"; 
             case EffectType.DRAW_CARD: return $"カードを{value}枚引き"; 
             case EffectType.FORCE_MOVE: return "手札に戻し"; 

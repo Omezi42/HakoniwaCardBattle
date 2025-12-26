@@ -27,6 +27,6 @@ MonoBehaviour:
   abilities:
   - trigger: 3
     target: 8
-    effect: 4
+    effect: 15
     value: 1
   cardIcon: {fileID: 773168917, guid: 53104a3c15dcf4040939b019da297c20, type: 3}

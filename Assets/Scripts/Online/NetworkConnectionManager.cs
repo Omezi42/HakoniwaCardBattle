@@ -289,17 +289,29 @@ public class NetworkConnectionManager : MonoBehaviour, INetworkRunnerCallbacks
     { 
         Debug.Log($"Player Joined: {player}"); 
 
-        // Shared Mode: Each player spawns their own NetworkPlayerController
+        // Shared Mode: Change to Master-Driven Spawning
+        // This ensures the Master (Host) always has a reference to the object, preventing "Invisible Enemy" issues.
         if (runner.GameMode == GameMode.Shared)
         {
-            if (player == runner.LocalPlayer && playerControllerPrefab != null)
+            // Only the Shared Mode Master spawns objects.
+            // When a new player joins (including the Master themselves), the Master spawns the controller.
+            if (runner.IsSharedModeMasterClient)
             {
-                var playerObj = runner.Spawn(playerControllerPrefab, Vector3.zero, Quaternion.identity, player);
-                var pc = playerObj.GetComponent<NetworkPlayerController>();
-                if (pc != null)
+                // Verify we haven't already spawned one (simple duplicate check)
+                if (NetworkPlayerController.Get(player) == null)
                 {
-                    pc.Owner = player;
-                    Debug.Log($"[Shared Mode] Spawned Local NetworkPlayerController for {player}");
+                    Debug.Log($"[Shared Mode Master] Spawning NetworkPlayerController for {player}");
+                    var playerObj = runner.Spawn(playerControllerPrefab, Vector3.zero, Quaternion.identity, player);
+                    var pc = playerObj.GetComponent<NetworkPlayerController>();
+                    if (pc != null)
+                    {
+                        pc.Owner = player;
+                        Debug.Log($"[Shared Mode Master] Assigned Owner {player} to PC {pc.Object.Id}");
+                    }
+                }
+                else
+                {
+                    Debug.Log($"[Shared Mode Master] Player {player} already has a controller. Skipping spawn.");
                 }
             }
         }

@@ -422,6 +422,7 @@ public class CardCreatorWindow : EditorWindow
 
             // 「〜の」マナ最大値 / 攻撃力 / 体力
             case EffectType.GAIN_MANA:
+            case EffectType.GAIN_MAX_MANA: // ★追加
             case EffectType.BUFF_ATTACK:
             case EffectType.BUFF_HEALTH:
                 return "の";
@@ -443,8 +444,8 @@ public class CardCreatorWindow : EditorWindow
         }
     }
 
-    string GetTerminalEffectText(EffectType effect, int value) { switch (effect) { case EffectType.DAMAGE: return $"{value}ダメージを与える"; case EffectType.HEAL: return $"{value}回復する"; case EffectType.BUFF_ATTACK: return $"攻撃力を+{value}する"; case EffectType.BUFF_HEALTH: return $"体力を+{value}する"; case EffectType.GAIN_MANA: return $"マナ最大値を+{value}する"; case EffectType.DESTROY: return "破壊する"; case EffectType.DRAW_CARD: return $"カードを{value}枚引く"; case EffectType.FORCE_MOVE: return "手札に戻す"; case EffectType.RETURN_TO_HAND: return "手札に戻す"; case EffectType.TAUNT: return "守護を付与する"; case EffectType.STEALTH: return "隠密を付与する"; case EffectType.QUICK: return "疾風を付与する"; case EffectType.HASTE: return "速攻を付与する"; case EffectType.PIERCE: return "貫通を付与する"; default: return ""; } }
-    string GetContinuativeEffectText(EffectType effect, int value) { switch (effect) { case EffectType.DAMAGE: return $"{value}ダメージを与え"; case EffectType.HEAL: return $"{value}回復し"; case EffectType.BUFF_ATTACK: return $"攻撃力を+{value}し"; case EffectType.BUFF_HEALTH: return $"体力を+{value}し"; case EffectType.GAIN_MANA: return $"マナ最大値を+{value}し"; case EffectType.DESTROY: return "破壊し"; case EffectType.DRAW_CARD: return $"カードを{value}枚引き"; case EffectType.FORCE_MOVE: return "手札に戻し"; case EffectType.RETURN_TO_HAND: return "手札に戻し"; case EffectType.TAUNT: return "守護を付与し"; case EffectType.STEALTH: return "隠密を付与し"; case EffectType.QUICK: return "疾風を付与し"; case EffectType.HASTE: return "速攻を付与し"; case EffectType.PIERCE: return "貫通を付与し"; default: return ""; } }
+    string GetTerminalEffectText(EffectType effect, int value) { switch (effect) { case EffectType.DAMAGE: return $"{value}ダメージを与える"; case EffectType.HEAL: return $"{value}回復する"; case EffectType.BUFF_ATTACK: return $"攻撃力を+{value}する"; case EffectType.BUFF_HEALTH: return $"体力を+{value}する"; case EffectType.GAIN_MANA: return $"マナを+{value}する"; case EffectType.GAIN_MAX_MANA: return $"マナ最大値を+{value}する"; case EffectType.DESTROY: return "破壊する"; case EffectType.DRAW_CARD: return $"カードを{value}枚引く"; case EffectType.FORCE_MOVE: return "手札に戻す"; case EffectType.RETURN_TO_HAND: return "手札に戻す"; case EffectType.TAUNT: return "守護を付与する"; case EffectType.STEALTH: return "隠密を付与する"; case EffectType.QUICK: return "疾風を付与する"; case EffectType.HASTE: return "速攻を付与する"; case EffectType.PIERCE: return "貫通を付与する"; default: return ""; } }
+    string GetContinuativeEffectText(EffectType effect, int value) { switch (effect) { case EffectType.DAMAGE: return $"{value}ダメージを与え"; case EffectType.HEAL: return $"{value}回復し"; case EffectType.BUFF_ATTACK: return $"攻撃力を+{value}し"; case EffectType.BUFF_HEALTH: return $"体力を+{value}し"; case EffectType.GAIN_MANA: return $"マナを+{value}し"; case EffectType.GAIN_MAX_MANA: return $"マナ最大値を+{value}し"; case EffectType.DESTROY: return "破壊し"; case EffectType.DRAW_CARD: return $"カードを{value}枚引き"; case EffectType.FORCE_MOVE: return "手札に戻し"; case EffectType.RETURN_TO_HAND: return "手札に戻し"; case EffectType.TAUNT: return "守護を付与し"; case EffectType.STEALTH: return "隠密を付与し"; case EffectType.QUICK: return "疾風を付与し"; case EffectType.HASTE: return "速攻を付与し"; case EffectType.PIERCE: return "貫通を付与し"; default: return ""; } }
     string GetPassiveName(EffectType effect) 
     { 
         switch (effect) { 

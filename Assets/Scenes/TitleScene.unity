@@ -883,6 +883,7 @@ MonoBehaviour:
   m_EditorClassIdentifier: 
   gameSceneName: SampleScene
   gameStatePrefab: {fileID: -4207510115084048996, guid: 44044fb27706e1342a3f7c025fc470db, type: 3}
+  playerControllerPrefab: {fileID: 7119482953308463525, guid: ec06c37d4bf2e184287dc9e549ac857d, type: 3}
 --- !u!1 &1650684385
 GameObject:
   m_ObjectHideFlags: 0
