@@ -53,7 +53,7 @@ public class RoomInfoUI : MonoBehaviour
     {
         if (NetworkConnectionManager.instance != null && NetworkConnectionManager.instance.Runner != null)
         {
-             GUIUtility.systemCopyBuffer = NetworkConnectionManager.instance.Runner.SessionInfo.Name;
+             WebGLHelper.CopyToClipboard(NetworkConnectionManager.instance.Runner.SessionInfo.Name);
              Debug.Log("Room ID copied to clipboard!");
         }
     }

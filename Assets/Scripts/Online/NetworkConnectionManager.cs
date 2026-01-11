@@ -166,21 +166,17 @@ public class NetworkConnectionManager : MonoBehaviour, INetworkRunnerCallbacks
     // 共通接続処理
     async Task<bool> StartGame(string sessionName, GameMode mode = GameMode.Shared, string specificSceneName = null, bool joinOnly = false)
     {
-        // 念のためRunnerの状態をチェック
-        if (_runner != null && _runner.IsRunning)
+        // ★FIX: Reuse existing runner if available (especially for Lobby -> Session transition)
+        bool reuseRunner = (_runner != null && _runnerInstance != null);
+        
+        if (!reuseRunner)
         {
-             Debug.LogWarning($"Runner is still active. Shutting down before StartGame.");
-             await _runner.Shutdown();
-             // Shutdown待機はCreateRunnerに任せるため、ここでは一旦nullにして再作成フローへ
-             _runner = null;
+             // 毎回Runnerを作り直す (既存がない場合)
+             await CreateRunner();
         }
-
-        // 毎回Runnerを作り直す
-        await CreateRunner();
 
         // シーンパスの確認
         string targetScene = !string.IsNullOrEmpty(specificSceneName) ? specificSceneName : gameSceneName;
-        // ... (snip scene check) ...
         string scenePath = $"Assets/Scenes/{targetScene}.unity";
         int sceneIndex = SceneUtility.GetBuildIndexByScenePath(scenePath);
 
@@ -202,6 +198,10 @@ public class NetworkConnectionManager : MonoBehaviour, INetworkRunnerCallbacks
         
         // Explicit Object Provider
         var objProvider = _runnerInstance.GetComponent<NetworkObjectProviderDefault>();
+        if (objProvider == null)
+        {
+            objProvider = _runnerInstance.AddComponent<NetworkObjectProviderDefault>();
+        }
 
         // AppSettingsでRegionを固定 (ParrelSyncなどでのリージョン不一致を防ぐ)
         // Globalから取得（Awakeでセット済み）
@@ -329,7 +329,11 @@ public class NetworkConnectionManager : MonoBehaviour, INetworkRunnerCallbacks
             }
         }
     }
-    public void OnPlayerLeft(NetworkRunner runner, PlayerRef player) { Debug.Log($"Player Left: {player}"); }
+    public void OnPlayerLeft(NetworkRunner runner, PlayerRef player) 
+    { 
+        Debug.Log($"Player Left: {player}"); 
+        if (GameManager.instance != null) GameManager.instance.OnPlayerDisconnect(player);
+    }
     public void OnShutdown(NetworkRunner runner, ShutdownReason shutdownReason) { Debug.Log($"Shutdown: {shutdownReason}"); }
     public void OnConnectedToServer(NetworkRunner runner) { }
     public void OnDisconnectedFromServer(NetworkRunner runner, NetDisconnectReason reason) { }

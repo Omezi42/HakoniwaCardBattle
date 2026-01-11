@@ -95,8 +95,11 @@ public class DeckEditManager : MonoBehaviour
             deckNameInput.onEndEdit.RemoveAllListeners();
             deckNameInput.onEndEdit.AddListener(OnDeckNameChanged);
             deckNameInput.characterLimit = 10; 
+            WebGLHelper.SetupInputField(deckNameInput); // WebGL Input Fix
         }
 
+        if (searchInput != null) WebGLHelper.SetupInputField(searchInput); // WebGL Input Fix
+        
         if (filterPanel) filterPanel.SetActive(false);
         
         // PagedDeckManagerのコールバック登録
@@ -227,37 +230,36 @@ public class DeckEditManager : MonoBehaviour
 
     public void OnClickStartImport()
     {
-        // インポート用ポップアップを開く、あるいはテキストフィールドを表示する処理が必要だが
-        // 簡易的に NewDeckPopup に統合するか、専用メソッドを作る。
-        // ここでは「クリップボードから読み込む」ボタンとして実装する例。
-        
-        string code = GUIUtility.systemCopyBuffer;
-        if (string.IsNullOrEmpty(code))
+        // WebGL対応: コールバックで受け取る
+        WebGLHelper.PasteFromClipboard((code) => 
         {
-            Debug.LogWarning("クリップボードが空です");
-            return;
-        }
+            if (string.IsNullOrEmpty(code))
+            {
+                Debug.LogWarning("クリップボードが空です");
+                return;
+            }
 
-        // 短いコード（7桁）ならFirebaseへ問い合わせ
-        if (code.Length <= 10 && DeckCodeDatabaseManager.instance != null)
-        {
-            Debug.Log($"Fetching deck for code: {code}...");
-            DeckCodeDatabaseManager.instance.GetDeck(code, (longCode, error) => {
-                if (!string.IsNullOrEmpty(longCode))
-                {
-                    ProcessImport(longCode);
-                }
-                else
-                {
-                    Debug.LogError($"Import Failed: {error}");
-                }
-            });
-        }
-        else
-        {
-            // 長いコードなら直接デコード
-            ProcessImport(code);
-        }
+            // 短いコード（7桁）ならFirebaseへ問い合わせ
+            if (code.Length <= 10 && DeckCodeDatabaseManager.instance != null)
+            {
+                Debug.Log($"Fetching deck for code: {code}...");
+                DeckCodeDatabaseManager.instance.GetDeck(code, (longCode, error) => {
+                    if (!string.IsNullOrEmpty(longCode))
+                    {
+                        ProcessImport(longCode);
+                    }
+                    else
+                    {
+                        Debug.LogError($"Import Failed: {error}");
+                    }
+                });
+            }
+            else
+            {
+                // 長いコードなら直接デコード
+                ProcessImport(code);
+            }
+        });
     }
     
     private void ProcessImport(string longCode)

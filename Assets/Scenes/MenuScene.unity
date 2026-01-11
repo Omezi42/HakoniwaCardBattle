@@ -4713,7 +4713,7 @@ MonoBehaviour:
   m_OnCullStateChanged:
     m_PersistentCalls:
       m_Calls: []
-  m_text: "\u6E96\u5099\u4E2D"
+  m_text: "\u30AA\u30F3\u30E9\u30A4\u30F3"
   m_isRightToLeft: 0
   m_fontAsset: {fileID: 11400000, guid: 588390317d74bd04ca61a26fa10670aa, type: 2}
   m_sharedMaterial: {fileID: 2100000, guid: f2d7f9993c4173646b4fa7940e7d5518, type: 2}

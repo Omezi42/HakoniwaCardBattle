@@ -48,7 +48,7 @@ public class CardImporter : MonoBehaviour
             card.maxInDeck = raw.maxInDeck;
             card.duration = raw.duration; // ★追加
             card.description = raw.description;
-            card.scriptKey = raw.scriptKey;
+            card.description = raw.description;
 
             // ★追加：アビリティリストの変換
             card.abilities = new List<CardAbility>();
@@ -96,7 +96,6 @@ public class CardImporter : MonoBehaviour
         public int duration;  // ★追加
         public int maxInDeck;
         public string description;
-        public string scriptKey;
         public RawAbility[] abilities; // ★追加
     }
 

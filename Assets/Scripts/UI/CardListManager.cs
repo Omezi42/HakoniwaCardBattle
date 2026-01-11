@@ -58,6 +58,9 @@ public class CardListManager : MonoBehaviour
         if (filterPanel) filterPanel.SetActive(false);
         UpdateSortButtonText();
         RefreshList();
+
+        // WebGL Input Fix
+        if (searchInput != null) WebGLHelper.SetupInputField(searchInput);
     }
 
     void OnClickSort()

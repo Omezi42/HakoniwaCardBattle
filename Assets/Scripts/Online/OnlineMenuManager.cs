@@ -18,6 +18,15 @@ public class OnlineMenuManager : MonoBehaviour
 
     private bool isRandomMatch = false;
 
+    void Start()
+    {
+        if (roomIdInputField != null)
+        {
+            roomIdInputField.characterLimit = 4; 
+            WebGLHelper.SetupInputField(roomIdInputField);
+        }
+    }
+
     // Called by Button: "Random Match"
     public void OnClickRandomMatch()
     {

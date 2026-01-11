@@ -44,6 +44,48 @@ public class NetworkPlayerController : NetworkBehaviour
         }
     }
 
+    public override void Render()
+    {
+        // ★Sync: Apply Networked Stats to GameManager (Client Side Sync)
+        if (GameManager.instance == null) return;
+
+        // 1. Sync Local Player Stats (Mana, MaxMana) from Host Logic
+        //    (Only needed if Host updated it, e.g. Mana Coin)
+        // 1. Sync Local Player Stats - DISBALED due to Prediction Flicker
+        if (IsLocalPlayer)
+        {
+             // Do NOT overwrite local GameManager prediction with lagged Network State.
+             // We trust local logic (StartTurn, GainMana) + RPC_SyncManaUpdate (Authoritative Override).
+        }
+        else
+        {
+             // 2. Sync Enemy (Remote Player) Stats
+             //    Only process if this NPC belongs to the "Enemy" (not me)
+             //    There might be observers, but in 1v1, anyone not me is Enemy.
+             if (Runner.LocalPlayer != Owner && Runner.LocalPlayer != PlayerRef.None)
+             {
+                 // Sync Hand Count (Visuals)
+                 // Use GameManager's Smart Buffer (UpdateHandVisuals)
+                 GameManager.instance.UpdateHandVisuals(HandCount);
+                 
+                 // Sync Graveyard & Deck
+                 if (GraveCount != GameManager.instance.enemyGraveyardCount)
+                 {
+                     GameManager.instance.enemyGraveyardCount = GraveCount;
+                     GameManager.instance.UpdateDeckGraveyardVisuals(); // Ensure this method exists and updates text
+                 }
+                 
+                 // Sync Mana (Enemy UI)
+                 if (CurrentMana != GameManager.instance.enemyCurrentMana || MaxMana != GameManager.instance.enemyMaxMana)
+                 {
+                     GameManager.instance.enemyCurrentMana = CurrentMana;
+                     GameManager.instance.enemyMaxMana = MaxMana;
+                     GameManager.instance.UpdateEnemyManaUI();
+                 }
+             }
+        }
+    }
+
     public override void Despawned(NetworkRunner runner, bool hasState)
     {
         Instances.Remove(this);

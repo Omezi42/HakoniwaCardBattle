@@ -54,7 +54,6 @@ public class CardData : ScriptableObject
     [Header("詳細")]
     [TextArea(2, 4)]
     public string description;
-    public string scriptKey;
 
     [Header("新・スキルシステム")]
     public List<CardAbility> abilities = new List<CardAbility>();

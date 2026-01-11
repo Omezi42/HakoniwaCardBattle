@@ -86,7 +86,6 @@ public class UnitMover : NetworkBehaviour, IBeginDragHandler, IDragHandler, IEnd
         }
     }
     
-    public string scriptKey; // Deprecated but kept for compatibility if needed locally
     public int maxHealth;
     public bool hasHaste = false; 
     public bool hasQuick = false;
@@ -167,7 +166,11 @@ public class UnitMover : NetworkBehaviour, IBeginDragHandler, IDragHandler, IEnd
         
         // ★Fix: Restore Summon Animation for Online Play
         // Since RPC_RequestPlayUnit spawns the object, local client needs to play the animation when it arrives.
-        PlaySummonAnimation();
+        // But Host local spawn already played it in Initialize. Avoid Double Play.
+        if (!HasStateAuthority || (OwnerPlayer != Runner.LocalPlayer))
+        {
+            PlaySummonAnimation();
+        }
     }
     public override void FixedUpdateNetwork()
     {
@@ -267,18 +270,30 @@ public class UnitMover : NetworkBehaviour, IBeginDragHandler, IDragHandler, IEnd
     {
         isPlayerUnit = isPlayer; 
         
-        attackPower = data.attack;
-        health = data.health;
+        // ★Fix: Proxy (Client) should NOT overwrite Networked Props (attack/health) with Base Data.
+        // It should use the synced _net values.
+        // Only Host (StateAuthority) or Offline should initialize logic values.
+        bool isAuth = (Object == null || !Object.IsValid || HasStateAuthority);
+        
+        if (isAuth)
+        {
+            attackPower = data.attack;
+            health = data.health;
+        }
+        
         sourceData = data;  
-        maxHealth = data.health;
+        maxHealth = data.health; // Local variable, safe to set
         
         originalParent = transform.parent;
 
         // ★ DIFFICULTY BUFF (Hard: +1/+1 for CPU)
         if (!isPlayer && PlayerDataManager.instance != null && PlayerDataManager.instance.cpuDifficulty == 2)
         {
-             attackPower += 1;
-             health += 1;
+             if (isAuth) 
+             {
+                 attackPower += 1;
+                 health += 1;
+             }
              maxHealth += 1;
         }
 
@@ -879,5 +894,20 @@ public class UnitMover : NetworkBehaviour, IBeginDragHandler, IDragHandler, IEnd
     public void ConsumeAction() { canMove = false; canAttack = false; UpdateColor(); }
     public void ConsumeMove() { canMove = false; if (!hasQuick) canAttack = false; UpdateColor(); }
     public void ConsumeAttack() { canAttack = false; if (!hasQuick) canMove = false; UpdateColor(); }
+
+    public override void Despawned(NetworkRunner runner, bool hasState)
+    {
+        base.Despawned(runner, hasState);
+        Debug.Log($"[UnitMover] Despawned: {(!string.IsNullOrEmpty(_netCardId.ToString()) ? _netCardId.ToString() : "Unknown")}");
+    }
+
+    void OnDestroy()
+    {
+        if (sourceData != null)
+        {
+            Debug.Log($"[UnitMover] OnDestroy: {sourceData.cardName} (ID={sourceData.id})");
+        }
+    }
+
     void UpdateColor() { if (GetComponent<UnityEngine.UI.Image>() == null) return; if (!canMove && !canAttack) GetComponent<UnityEngine.UI.Image>().color = Color.gray; else GetComponent<UnityEngine.UI.Image>().color = Color.white; }
 }

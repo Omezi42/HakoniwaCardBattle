@@ -17,7 +17,10 @@ public class Leader : MonoBehaviour, IDropHandler
     public Transform atkArea; // ★追加：ここにATKAreaを登録
     void Start()
     {
-        currentHp = maxHp;
+        // ★Request: Initial HP 30
+        currentHp = 30;
+        maxHp = 30;
+
         UpdateHP();
         UpdateHPBar();
     }

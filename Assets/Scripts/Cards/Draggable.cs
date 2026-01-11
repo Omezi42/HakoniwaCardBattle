@@ -55,14 +55,18 @@ public class Draggable : MonoBehaviour, IBeginDragHandler, IDragHandler, IEndDra
 
         if (IsTargetingCard())
         {
-            // 閾値を超えたら拡大
+            // 閾値を超えたら拡大 + 透明化 (ターゲットUIのみ残す)
             if (Input.mousePosition.y > Screen.height * SPELL_CAST_THRESHOLD)
             {
                 transform.localScale = Vector3.one * 1.2f;
+                // ★Fix: User disliked "Transparent" spells. Revert to just enlarge.
+                // canvasGroup.alpha = 0f; 
             }
             else
             {
                 transform.localScale = Vector3.one;
+                // Restore alpha if pulled back
+                canvasGroup.alpha = 0.6f;
             }
         }
 
@@ -74,12 +78,21 @@ public class Draggable : MonoBehaviour, IBeginDragHandler, IDragHandler, IEndDra
 
     public void OnEndDrag(PointerEventData eventData)
     {
-        canvasGroup.blocksRaycasts = true;
-        canvasGroup.alpha = 1.0f;
-        
         if (graphicRaycaster != null) graphicRaycaster.enabled = true;
         
         transform.localScale = Vector3.one; 
+
+        // ★FIX: If targeting mode started (via OnDrop), do NOT reset alpha to 1.0.
+        // The card should remain invisible (alpha 0) as set by StartUnitTargeting.
+        if (GameManager.instance != null && GameManager.instance.isTargetingMode) 
+        {
+             // Keep alpha as is (0f from StartUnitTargeting)
+        }
+        else
+        {
+             canvasGroup.blocksRaycasts = true;
+             canvasGroup.alpha = 1.0f;
+        } 
 
         if (IsTargetingCard())
         {

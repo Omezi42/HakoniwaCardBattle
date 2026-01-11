@@ -18,6 +18,9 @@ public class GameStateController : NetworkBehaviour
     // 先攻プレイヤー (Late Joiner用)
     [Networked] public PlayerRef FirstPlayer { get; set; }
 
+    // ★追加: ターンタイマー (120秒)
+    [Networked] public float TurnTimer { get; set; }
+
     public override void Spawned()
     {
         // 初期化: まだゲーム開始しない
@@ -25,6 +28,8 @@ public class GameStateController : NetworkBehaviour
         {
             TurnCount = 0;
             IsGameStarted = false;
+            // ★Request: Timer 100s
+            TurnTimer = 100f;
         }
         Debug.Log($"[GameState] Spawned. Active Scene: {UnityEngine.SceneManagement.SceneManager.GetActiveScene().name}. IsServer: {Runner.IsServer}, IsSharedModeMaster: {Runner.IsSharedModeMasterClient}");
     }
@@ -50,6 +55,20 @@ public class GameStateController : NetworkBehaviour
         }
 
         // CheckTurnUpdate(); // Moved to Render to ensure execution on Proxy
+
+        // ★追加: ターンタイマー更新 (ホストのみ)
+        if (Object.HasStateAuthority && IsGameStarted)
+        {
+            if (TurnTimer > 0)
+            {
+                TurnTimer -= Runner.DeltaTime;
+                if (TurnTimer <= 0)
+                {
+                    Debug.Log("[GameState] Turn Timer Expired! Forcing End Turn.");
+                    EndTurn();
+                }
+            }
+        }
     }
 
     public override void Despawned(NetworkRunner runner, bool hasState)
@@ -102,8 +121,9 @@ public class GameStateController : NetworkBehaviour
                 if (currentEnemyJob != 0) GameManager.instance.SetEnemyLeaderIcon(currentEnemyJob);
             }
         }
+        }
     }
-    }
+
 
 
     void OnTurnChanged()
@@ -179,7 +199,9 @@ public class GameStateController : NetworkBehaviour
         int nextIndex = (currentIndex + 1) % sortedPlayers.Count;
 
         ActivePlayer = sortedPlayers[nextIndex];
+        ActivePlayer = sortedPlayers[nextIndex];
         TurnCount++;
+        TurnTimer = 120f; // ★Reset Timer
         // Debug.Log($"[GameState] Turn Toggled. New Active: {ActivePlayer}"); // Removed Debug.Log
     }
 
@@ -311,6 +333,33 @@ public class GameStateController : NetworkBehaviour
                     pc.GraveCount = grave;
                 }
             }
+        }
+
+    }
+
+    // ★Sync Mana Forcefully (Host -> Guest)
+    [Rpc(RpcSources.All, RpcTargets.All)]
+    public void RPC_SyncManaUpdate(PlayerRef target, int current, int max)
+    {
+        if (target == Runner.LocalPlayer)
+        {
+             // I am the target (Guest). Update my local state.
+             if (GameManager.instance != null)
+             {
+                 GameManager.instance.currentMana = current;
+                 GameManager.instance.maxMana = max;
+                 GameManager.instance.UpdateManaUI();
+                 Debug.Log($"[Sync] Received Mana Update from Host: {current}/{max}");
+                 
+                 // Also Update my NPC if I have authority (Shared Mode)
+                 // This ensures the Host sees the updated value eventually via NetworkVar
+                 var myPC = NetworkPlayerController.Get(Runner.LocalPlayer);
+                 if (myPC != null && myPC.Object.HasStateAuthority)
+                 {
+                     myPC.CurrentMana = current;
+                     myPC.MaxMana = max;
+                 }
+             }
         }
     }
     // 先攻プレイヤー (Coin Tossで決定)
@@ -469,7 +518,10 @@ public class GameStateController : NetworkBehaviour
                  // Opponent Turn Started effectively
                  Debug.Log($"[GameState] Enemy Turn Started. Visualizing Draw/Mana.");
                  // 1. Draw Animation (Standard Turn Draw = 1)
-                 GameManager.instance.EnemyDrawCard(1);
+                 // ★FIX: Remove redundant local call. 
+                 // Host calls StartPlayerTurn -> DrawSequence -> RPC_SyncDraw.
+                 // If we call it here too, we get Double Draw.
+                 // GameManager.instance.EnemyDrawCard(1);
                  // 2. Mana Update? (Usually handled by Networked var sync, but EnemyManaUI might need refresh)
                  // Note: EnemyDrawCard will animate hand and count.
                  // Actual Mana value Sync happens via RPC_UpdatePlayerStats.
@@ -566,6 +618,12 @@ public class GameStateController : NetworkBehaviour
         
         // Determine if this is "my" action or "enemy" action for color coding
         bool isPlayerAction = (actor == Runner.LocalPlayer);
+
+        // ★Fix: Suppress Duplicate Log for Guest
+        // If I am the actor (Guest) and I am NOT the Host (who only logs via RPC), 
+        // implies I already logged this locally via BroadcastLog.
+        // Host logs ONLY via RPC, so Host must process this.
+        if (isPlayerAction && !Object.HasStateAuthority) return;
         
         // Card data retrieval (optional, for hover tooltip)
         CardData card = null;
@@ -674,7 +732,9 @@ public class GameStateController : NetworkBehaviour
         if (GameManager.instance == null) return;
         
         // HostとGuestで視点が異なるため補正
-        // RPCの送信者が自分なら isPlayerOwner そのまま。
+        // RPCの送信者が自分(Caller)なら、既にローカルで生成済みなので無視する
+        if (info.Source == Runner.LocalPlayer) return;
+
         // 送信者が相手なら、isPlayerOwner の反転（自分から見て敵の建築）
         bool isMeRecipient = (info.Source == Runner.LocalPlayer);
         bool localIsPlayer = isMeRecipient ? isPlayerOwner : !isPlayerOwner;
@@ -686,7 +746,7 @@ public class GameStateController : NetworkBehaviour
     [Rpc(RpcSources.StateAuthority, RpcTargets.All)]
     public void RPC_DirectDamageToLeader(PlayerRef targetPlayer, int damage)
     {
-        // 自分宛てならダメージを受ける
+        // 自分宛てならダメージを受ける (Logic Authority)
         if (Runner.LocalPlayer == targetPlayer)
         {
             if (GameManager.instance != null && GameManager.instance.playerLeader != null)
@@ -698,6 +758,44 @@ public class GameStateController : NetworkBehaviour
                     leader.TakeDamage(damage);
                 }
             }
+        }
+        else
+        {
+            // ★FIX: 自分がターゲットでない＝敵（相手）がダメージを受けた
+            // 攻撃した側（自分）の画面で、敵リーダーの被ダメージ演出とHPバー更新を行う
+            // (SyncNetworkInfoの定期同期を待つと直感的な反応が遅れるため)
+            if (GameManager.instance != null)
+            {
+                // GameManagerが保持する enemyLeaderObj (または EnemyInfo) を探す
+                GameObject enemyObj = GameObject.Find("EnemyInfo"); // Simple fallback lookup
+                if (enemyObj != null)
+                {
+                    Leader enemyLeader = enemyObj.GetComponent<Leader>();
+                    if (enemyLeader != null)
+                    {
+                        // Play visual effect / sound if needed
+                        enemyLeader.TakeDamage(damage); // Apply to Dummy Leader (Visual Only)
+                    }
+                }
+            }
+        }
+    }
+
+    // ★追加: スペルプレイリクエストRPC
+    [Rpc(RpcSources.All, RpcTargets.StateAuthority)]
+    public void RPC_RequestPlaySpell(string cardId, NetworkId targetUnitId, bool isTargetLeader, int targetColumn, RpcInfo info = default)
+    {
+        // 1. Validate
+        if (ActivePlayer != info.Source) return;
+
+        // 2. Execute Logic on Host
+        if (GameManager.instance != null)
+        {
+            // Host checks if sender is self to set isHostAction
+            bool isHostAction = (info.Source == Runner.LocalPlayer);
+            
+            // Call ProcessOnlinePlaySpell. consumeMana=true (Host consumes authoritative, Guest's mana is tracked on Host)
+            GameManager.instance.ProcessOnlinePlaySpell(cardId, targetUnitId, isTargetLeader, isHostAction, targetColumn, true);
         }
     }
 
@@ -723,9 +821,10 @@ public class GameStateController : NetworkBehaviour
             // Wait, Guest already consumed mana locally. Host tracking should reflects Guest's mana.
             // Host tracking: enemyCurrentMana = Mathf.Max(0, enemyCurrentMana - card.cost); (Inside ProcessOnlinePlayUnit)
             // So for Guest, we pass 'isHostAction=false'.
-            // For Host, we pass 'isHostAction=true', but consumeMana=false.
+            // For Host, we pass 'isHostAction=true', but consumeMana=true (Host must consume Authoritative Mana, DropPlace doesn't).
             
-            GameManager.instance.ProcessOnlinePlayUnit(cardId, slotIndex, isHostAction, info.Source, targetUnitId, isTargetLeader, !isHostAction);
+            // ★Changed: always consumeMana=true. DropPlace never consumes for Online Play.
+            GameManager.instance.ProcessOnlinePlayUnit(cardId, slotIndex, isHostAction, info.Source, targetUnitId, isTargetLeader, true);
         }
     }
     // ★追加: 攻撃リクエストRPC
@@ -775,14 +874,5 @@ public class GameStateController : NetworkBehaviour
             }
         }
     }
-    // ★追加: スペルプレイリクエストRPC
-    // ★追加: スペルプレイリクエストRPC
-    [Rpc(RpcSources.All, RpcTargets.StateAuthority)]
-    public void RPC_RequestPlaySpell(string cardId, NetworkId targetUnitId, bool isTargetLeader, int targetColumn = -1, RpcInfo info = default)
-    {
-        bool isHostAction = (info.Source == Runner.LocalPlayer);
-        // ★FIX: Same as PlayUnit. Host already paid locally. Guest paid locally.
-        // Host tracking of Guest mana is handled inside ProcessOnlinePlaySpell (enemyCurrentMana -= cost).
-        GameManager.instance.ProcessOnlinePlaySpell(cardId, targetUnitId, isTargetLeader, isHostAction, targetColumn, !isHostAction);
-    }
+
 }

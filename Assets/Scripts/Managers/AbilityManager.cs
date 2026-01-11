@@ -258,12 +258,16 @@ public class AbilityManager : MonoBehaviour
             foreach(var e in allEnemies)
             {
                 SlotInfo eSlot = e.transform.parent.GetComponent<SlotInfo>();
-                if (mySlot != null && eSlot != null && mySlot.y == eSlot.y) candidates.Add(e);
+                if (mySlot != null && eSlot != null && mySlot.y == eSlot.y && !e.hasStealth) candidates.Add(e);
             }
         }
         else 
         {
-            candidates.AddRange(allEnemies);
+            // ★FIX: Filter Stealth Units
+            foreach(var e in allEnemies)
+            {
+                if (!e.hasStealth) candidates.Add(e);
+            }
         }
 
         if (candidates.Count > 0) 
@@ -376,26 +380,32 @@ public class AbilityManager : MonoBehaviour
                 if (targetUnit != null) targetUnit.TakeDamage(value);
                 else if (target is Leader leader) 
                 {
-                    leader.TakeDamage(value);
+                    // leader.TakeDamage(value); // ★FIX: Removed local application to prevent Double Damage (Host takes damage here AND via RPC)
                     // ★Sync: Always notify clients of Leader damage (Host Self or Enemy)
-                    var gameState = FindObjectOfType<GameStateController>();
-                    if (gameState != null && gameState.Object.HasStateAuthority)
-                    {
-                         // Find the PlayerRef owning this Leader
-                         var targetRef = gameState.Runner.LocalPlayer; // Default to Host
-                         
-                         // If it's NOT Host's leader, it's the Enemy (Guest)'s leader
-                         if (GameManager.instance.playerLeader != null && leader.gameObject != GameManager.instance.playerLeader.gameObject)
-                         {
-                             foreach(var p in gameState.Runner.ActivePlayers) 
-                             {
-                                 if (p != gameState.Runner.LocalPlayer) { targetRef = p; break; }
-                             }
-                         }
-                         
-                         // Broadcast damage event
-                         gameState.RPC_DirectDamageToLeader(targetRef, value);
-                    }
+                     // ★Sync: Always notify clients of Leader damage (Host Self or Enemy)
+                     var gameState = FindObjectOfType<GameStateController>();
+                     if (gameState != null && gameState.Object.HasStateAuthority)
+                     {
+                          // Find the PlayerRef owning this Leader
+                          var targetRef = gameState.Runner.LocalPlayer; // Default to Host
+                          
+                          // If it's NOT Host's leader, it's the Enemy (Guest)'s leader
+                          if (GameManager.instance.playerLeader != null && leader.gameObject != GameManager.instance.playerLeader.gameObject)
+                          {
+                              foreach(var p in gameState.Runner.ActivePlayers) 
+                              {
+                                  if (p != gameState.Runner.LocalPlayer) { targetRef = p; break; }
+                              }
+                          }
+                          
+                          // Broadcast damage event (RPC executes TakeDamage on StateAuthority/Local)
+                          gameState.RPC_DirectDamageToLeader(targetRef, value);
+                     }
+                     else if (gameState == null)
+                     {
+                         // ★Offline Fix: Apply damage locally directly
+                         leader.TakeDamage(value);
+                     }
                 }
                 break;
 
@@ -403,7 +413,7 @@ public class AbilityManager : MonoBehaviour
                 if (targetUnit != null) targetUnit.Heal(value);
                 else if (target is Leader leader) 
                 {
-                    leader.TakeDamage(-value);
+                    // leader.TakeDamage(-value); // ★FIX: Removed local application
                      // ★Sync: Sync Heal too
                     var gameState = FindObjectOfType<GameStateController>();
                     if (gameState != null && gameState.Object.HasStateAuthority)
@@ -415,8 +425,17 @@ public class AbilityManager : MonoBehaviour
                          }
                          gameState.RPC_DirectDamageToLeader(targetRef, -value);
                     }
+                    else
+                    {
+                        // Fallback for Offline or Client-Side Prediction? 
+                        // But prediction causes desync if logic is authoritative.
+                        // Offline mode needs fallback.
+                        if (gameState == null) leader.TakeDamage(-value);
+                    }
                 }
                 break;
+
+
 
             case EffectType.BUFF_ATTACK:
                 if (targetUnit != null) 
@@ -493,6 +512,9 @@ public class AbilityManager : MonoBehaviour
                 var unit = slot.GetChild(0).GetComponent<UnitMover>();
                 if (unit != null)
                 {
+                    // ★FIX: Skip Stealth Units acting as targets for "Front" attacks
+                    if (unit.hasStealth) continue;
+
                     if (info.y == 0) anyFrontEnemies.Add(unit);
                     
                     if (myX != -1 && info.x == myX)

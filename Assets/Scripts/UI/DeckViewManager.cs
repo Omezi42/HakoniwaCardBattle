@@ -94,7 +94,7 @@ public class DeckViewManager : MonoBehaviour
         {
             string codeToCopy = !string.IsNullOrEmpty(viewingDeck.publishedCode) ? viewingDeck.publishedCode : deckCodeText.text;
             
-            GUIUtility.systemCopyBuffer = codeToCopy;
+            WebGLHelper.CopyToClipboard(codeToCopy);
             Debug.Log($"Copied existing code: {codeToCopy}");
             
             // フィードバック表示
@@ -113,7 +113,7 @@ public class DeckViewManager : MonoBehaviour
                 {
                     // 成功時
                     deckCodeText.text = shortCode;
-                    GUIUtility.systemCopyBuffer = shortCode;
+                    WebGLHelper.CopyToClipboard(shortCode);
                     
                     // ★重要: 発行されたコードをデッキデータに保存して永続化
                     viewingDeck.publishedCode = shortCode;
